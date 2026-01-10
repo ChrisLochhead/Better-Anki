@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
 
 data class StudyState(
     val currentCard: Card? = null,
@@ -51,8 +52,17 @@ class StudyViewModel(
             val newCardsStudied = preferencesRepository.getNewCardsStudiedToday(deckId).first()
             val deckSettings = preferencesRepository.getDeckSettings(deckId).first()
             val lastStudiedDate = deckSettings.lastStudiedDate
+
+            val debugOffsetDays = preferencesRepository.debugDayOffset.first()
+            val effectiveNow = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(debugOffsetDays.toLong())
             
-            val cards = repository.getCardsToStudy(deckId, settings, newCardsStudied, lastStudiedDate)
+            val cards = repository.getCardsToStudy(
+                deckId = deckId,
+                settings = settings,
+                newCardsAlreadyStudied = newCardsStudied,
+                lastStudiedDate = lastStudiedDate,
+                currentTimeMillis = effectiveNow
+            )
             if (cards.isNotEmpty()) {
                 // Count new vs review cards
                 val newCount = cards.count { it.status == CardStatus.NEW }
@@ -74,7 +84,7 @@ class StudyViewModel(
             }
             // Mark that we've studied today and update last studied date
             preferencesRepository.markStudiedToday(deckId)
-            preferencesRepository.updateLastStudiedDate(deckId)
+            preferencesRepository.updateLastStudiedDate(deckId, effectiveNow)
         }
     }
     
@@ -100,6 +110,9 @@ class StudyViewModel(
         val settings = currentState.currentSettings
         
         viewModelScope.launch {
+            val debugOffsetDays = preferencesRepository.debugDayOffset.first()
+            val effectiveNow = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(debugOffsetDays.toLong())
+
             // Check if this is the first time seeing this card (it's in unseenNewCardIds)
             val isFirstTimeNewCard = currentState.unseenNewCardIds.contains(card.id)
             
@@ -115,7 +128,8 @@ class StudyViewModel(
                     responseTime = responseTime,
                     correct = correct
                 ),
-                settings
+                settings,
+                currentTimeMillis = effectiveNow
             )
             
             // Determine if card should be re-queued
@@ -123,11 +137,16 @@ class StudyViewModel(
             val responseTimeSeconds = responseTime / 1000
             val shouldRequeue = !correct || 
                 (correct && responseTimeSeconds > settings.goodThresholdSeconds)
-            
-            val updatedFailedCards = if (shouldRequeue) {
-                currentState.failedCards + card
+
+            // Re-queue within the session (Anki-like): show again soon, not only after finishing everything.
+            val requeueGap = 3
+            val updatedRemainingCards: List<Card> = if (shouldRequeue) {
+                val list = currentState.remainingCards.toMutableList()
+                val insertAt = minOf(requeueGap, list.size)
+                list.add(insertAt, card)
+                list
             } else {
-                currentState.failedCards
+                currentState.remainingCards
             }
             
             // Remove from unseenNewCardIds if this is first time seeing it
@@ -165,27 +184,11 @@ class StudyViewModel(
             // Increase done count only if card is not being re-queued
             val newDone = if (!shouldRequeue) currentState.doneCount + 1 else currentState.doneCount
             
-            // Get next card: from remaining first, then from failed cards
-            val remaining = currentState.remainingCards
-            if (remaining.isNotEmpty()) {
+            // Get next card from the (possibly updated) remaining queue
+            if (updatedRemainingCards.isNotEmpty()) {
                 _state.value = currentState.copy(
-                    currentCard = remaining.first(),
-                    remainingCards = remaining.drop(1),
-                    failedCards = updatedFailedCards,
-                    isFlipped = false,
-                    cardStartTime = System.currentTimeMillis(),
-                    reviewedCount = currentState.reviewedCount + 1,
-                    correctCount = if (correct) currentState.correctCount + 1 else currentState.correctCount,
-                    newCardsRemaining = newNew,
-                    reviewCardsRemaining = newReview,
-                    doneCount = newDone,
-                    unseenNewCardIds = updatedUnseenNewCardIds
-                )
-            } else if (updatedFailedCards.isNotEmpty()) {
-                // Show failed cards again
-                _state.value = currentState.copy(
-                    currentCard = updatedFailedCards.first(),
-                    remainingCards = updatedFailedCards.drop(1),
+                    currentCard = updatedRemainingCards.first(),
+                    remainingCards = updatedRemainingCards.drop(1),
                     failedCards = emptyList(),
                     isFlipped = false,
                     cardStartTime = System.currentTimeMillis(),

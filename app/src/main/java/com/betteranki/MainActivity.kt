@@ -38,6 +38,7 @@ import com.betteranki.ui.decklist.DeckListScreen
 import com.betteranki.ui.decklist.DeckListViewModel
 import com.betteranki.ui.settings.SettingsScreen
 import com.betteranki.ui.settings.SettingsViewModel
+import java.util.concurrent.TimeUnit
 import com.betteranki.ui.study.StudyScreen
 import com.betteranki.ui.study.StudyViewModel
 import com.betteranki.ui.theme.BetterAnkiTheme
@@ -199,7 +200,14 @@ fun AnkiApp(
             var newCardsDueToday by remember { mutableIntStateOf(0) }
             LaunchedEffect(deckId, settings, newCardsStudiedToday, deckSettings) {
                 val lastStudied = deckSettings.lastStudiedDate
-                actualDueCount = repository.getDueCountForToday(deckId, settings, newCardsStudiedToday, lastStudied)
+                val effectiveNow = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(debugDayOffset.toLong())
+                actualDueCount = repository.getDueCountForToday(
+                    deckId = deckId,
+                    settings = settings,
+                    newCardsAlreadyStudied = newCardsStudiedToday,
+                    lastStudiedDate = lastStudied,
+                    currentTimeMillis = effectiveNow
+                )
                 // Calculate new cards due today
                 val remainingNewToday = (settings.dailyNewCards - newCardsStudiedToday).coerceAtLeast(0)
                 newCardsDueToday = remainingNewToday.coerceAtMost(deckWithStats?.newCards ?: 0)

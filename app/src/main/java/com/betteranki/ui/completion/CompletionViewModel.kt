@@ -44,7 +44,7 @@ class CompletionViewModel(
             
             history.collect { historyList ->
                 val percentLearned = if (stats != null && stats.totalCards > 0) {
-                    ((stats.learningCards + stats.masteredCards).toFloat() / stats.totalCards) * 100
+                    ((stats.hardCards + stats.masteredCards).toFloat() / stats.totalCards) * 100
                 } else 0f
                 
                 _state.value = _state.value.copy(

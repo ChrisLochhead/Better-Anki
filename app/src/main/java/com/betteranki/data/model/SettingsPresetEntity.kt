@@ -15,9 +15,8 @@ data class SettingsPresetEntity(
     val hardIntervalMinutes: Int,
     val goodIntervalMinutes: Int,
     val easyIntervalMinutes: Int,
-    val easyThresholdSeconds: Int = 60,
-    val goodThresholdSeconds: Int = 300,
-    val hardThresholdSeconds: Int = 86400,
+    val easyThresholdSeconds: Int = 3,
+    val goodThresholdSeconds: Int = 5,
 
     // Leniency
     val leniencyModeEnabled: Boolean = true,
@@ -61,7 +60,6 @@ fun SettingsPresetEntity.toPreset(): SettingsPreset {
             easyIntervalMinutes = easyIntervalMinutes,
             easyThresholdSeconds = easyThresholdSeconds,
             goodThresholdSeconds = goodThresholdSeconds,
-            hardThresholdSeconds = hardThresholdSeconds,
 
             leniencyModeEnabled = leniencyModeEnabled,
             maxNewCardsAfterSkip = maxNewCardsAfterSkip,
@@ -97,7 +95,6 @@ fun SettingsPreset.toEntity(): SettingsPresetEntity {
         easyIntervalMinutes = settings.easyIntervalMinutes,
         easyThresholdSeconds = settings.easyThresholdSeconds,
         goodThresholdSeconds = settings.goodThresholdSeconds,
-        hardThresholdSeconds = settings.hardThresholdSeconds,
 
         leniencyModeEnabled = settings.leniencyModeEnabled,
         maxNewCardsAfterSkip = settings.maxNewCardsAfterSkip,

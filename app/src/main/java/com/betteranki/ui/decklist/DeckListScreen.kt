@@ -175,7 +175,13 @@ fun DeckListScreen(
                 }
             }
             },
-            snackbarHost = { SnackbarHost(snackbarHostState) },
+            snackbarHost = {
+                // Keep snackbars above the bottom action buttons
+                SnackbarHost(
+                    hostState = snackbarHostState,
+                    modifier = Modifier.padding(bottom = 88.dp)
+                )
+            },
             containerColor = AppColors.DarkBackground
         ) { paddingValues ->
             Box(modifier = Modifier.fillMaxSize()) {
@@ -619,8 +625,8 @@ fun ProgressBar(deckWithStats: DeckWithStats) {
     if (total == 0f) return
     
     val newPercent = deckWithStats.newCards / total
-    val learningPercent = deckWithStats.learningCards / total
-    val reviewPercent = deckWithStats.reviewCards / total
+    val hardPercent = deckWithStats.hardCards / total
+    val easyPercent = deckWithStats.easyCards / total
     val masteredPercent = deckWithStats.masteredCards / total
     
     Column {
@@ -631,7 +637,7 @@ fun ProgressBar(deckWithStats: DeckWithStats) {
                 .height(8.dp),
             horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            // New (Neon Green)
+            // New (Crimson)
             if (newPercent > 0) {
                 Box(
                     modifier = Modifier
@@ -640,25 +646,25 @@ fun ProgressBar(deckWithStats: DeckWithStats) {
                         .background(AppColors.CardNew, RoundedCornerShape(2.dp))
                 )
             }
-            // Learning (Amber)
-            if (learningPercent > 0) {
+            // Hard (Purple-red)
+            if (hardPercent > 0) {
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .weight(learningPercent)
-                        .background(AppColors.CardLearning, RoundedCornerShape(2.dp))
+                        .weight(hardPercent)
+                        .background(AppColors.CardHard, RoundedCornerShape(2.dp))
                 )
             }
-            // Review (Indigo)
-            if (reviewPercent > 0) {
+            // Easy (Blue-purple)
+            if (easyPercent > 0) {
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .weight(reviewPercent)
-                        .background(AppColors.CardReview, RoundedCornerShape(2.dp))
+                        .weight(easyPercent)
+                        .background(AppColors.CardEasy, RoundedCornerShape(2.dp))
                 )
             }
-            // Mastered (Magenta)
+            // Mastered (Sky blue)
             if (masteredPercent > 0) {
                 Box(
                     modifier = Modifier

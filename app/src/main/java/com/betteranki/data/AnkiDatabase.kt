@@ -16,7 +16,7 @@ import com.betteranki.data.model.SettingsPresetEntity
 
 @Database(
     entities = [Card::class, Deck::class, ReviewHistory::class, SettingsPresetEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

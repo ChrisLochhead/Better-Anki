@@ -123,8 +123,8 @@ fun DeckDetailsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .background(AppColors.CardNew.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
-                    .border(1.dp, AppColors.CardNew, RoundedCornerShape(2.dp))
+                    .background(AppColors.Primary.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
+                    .border(1.dp, AppColors.Primary, RoundedCornerShape(2.dp))
                     .clickable { onViewAllCards() },
                 contentAlignment = Alignment.Center
             ) {
@@ -133,7 +133,7 @@ fun DeckDetailsScreen(
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 2.sp,
-                    color = AppColors.CardNew
+                    color = AppColors.Primary
                 )
             }
 
@@ -142,8 +142,8 @@ fun DeckDetailsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .background(AppColors.CardNew.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
-                    .border(1.dp, AppColors.CardNew, RoundedCornerShape(2.dp))
+                    .background(AppColors.Primary.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
+                    .border(1.dp, AppColors.Primary, RoundedCornerShape(2.dp))
                     .clickable { onOcrScan() },
                 contentAlignment = Alignment.Center
             ) {
@@ -154,7 +154,7 @@ fun DeckDetailsScreen(
                     Icon(
                         imageVector = androidx.compose.material.icons.Icons.Default.CameraAlt,
                         contentDescription = null,
-                        tint = AppColors.CardNew,
+                        tint = AppColors.Primary,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -163,7 +163,7 @@ fun DeckDetailsScreen(
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 2.sp,
-                        color = AppColors.CardNew
+                        color = AppColors.Primary
                     )
                 }
             }
@@ -245,8 +245,8 @@ fun DeckDetailsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
-                        .background(AppColors.CardNew.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
-                        .border(1.dp, AppColors.CardNew, RoundedCornerShape(2.dp))
+                        .background(AppColors.Primary.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
+                        .border(1.dp, AppColors.Primary, RoundedCornerShape(2.dp))
                         .clickable { showFreezeDialog = true },
                     contentAlignment = Alignment.Center
                 ) {
@@ -254,7 +254,7 @@ fun DeckDetailsScreen(
                         Icon(
                             imageVector = Icons.Default.Lock,
                             contentDescription = null,
-                            tint = AppColors.CardNew,
+                            tint = AppColors.Primary,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -263,7 +263,7 @@ fun DeckDetailsScreen(
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 2.sp,
-                            color = AppColors.CardNew
+                            color = AppColors.Primary
                         )
                     }
                 }
@@ -334,16 +334,16 @@ fun DeckDetailsScreen(
                         color = AppColors.CardNew
                     )
                     ProgressBarItem(
-                        label = "Learning",
-                        count = deckWithStats.learningCards,
+                        label = "Hard",
+                        count = deckWithStats.hardCards,
                         total = deckWithStats.totalCards,
-                        color = AppColors.CardLearning
+                        color = AppColors.CardHard
                     )
                     ProgressBarItem(
-                        label = "Review",
-                        count = deckWithStats.reviewCards,
+                        label = "Easy",
+                        count = deckWithStats.easyCards,
                         total = deckWithStats.totalCards,
-                        color = AppColors.CardReview
+                        color = AppColors.CardEasy
                     )
                     ProgressBarItem(
                         label = "Mastered",
@@ -435,7 +435,11 @@ fun DeckDetailsScreen(
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete Deck?") },
+            containerColor = AppColors.DarkSurface,
+            titleContentColor = AppColors.TextPrimary,
+            textContentColor = AppColors.TextSecondary,
+            shape = RoundedCornerShape(2.dp),
+            title = { Text("Delete deck?") },
             text = { Text("Are you sure you want to delete '${deckWithStats.deck.name}'? This will delete all ${cards.size} cards and cannot be undone.") },
             confirmButton = {
                 TextButton(
@@ -465,9 +469,10 @@ fun DeckDetailsScreen(
             containerColor = AppColors.DarkSurface,
             titleContentColor = AppColors.TextPrimary,
             textContentColor = AppColors.TextSecondary,
+            shape = RoundedCornerShape(2.dp),
             title = { 
                 Text(
-                    text = "FREEZE DECK",
+                    text = "Freeze deck",
                     fontWeight = FontWeight.Black,
                     letterSpacing = 2.sp
                 )
@@ -513,7 +518,7 @@ fun DeckDetailsScreen(
                     )
                 ) {
                     Text(
-                        text = "FREEZE",
+                        text = "Freeze",
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp
                     )
@@ -799,32 +804,32 @@ fun StackedAreaChart(
         val points = historyData.mapIndexed { index, history ->
             val x = paddingLeft + index * xStep
             
-            // Stack from bottom to top: Mastered -> Review -> Learning -> New
+            // Stack from bottom to top: Mastered -> Easy -> Hard -> New
             val masteredHeight = (history.masteredCards.toFloat() / maxValue) * chartHeight
-            val reviewHeight = (history.reviewCards.toFloat() / maxValue) * chartHeight
-            val learningHeight = (history.learningCards.toFloat() / maxValue) * chartHeight
+            val easyHeight = (history.reviewCards.toFloat() / maxValue) * chartHeight
+            val hardHeight = (history.learningCards.toFloat() / maxValue) * chartHeight
             val newHeight = (history.newCards.toFloat() / maxValue) * chartHeight
             
             // Y coordinates (from bottom)
             val bottom = paddingTop + chartHeight
             val masteredY = bottom - masteredHeight
-            val reviewY = masteredY - reviewHeight
-            val learningY = reviewY - learningHeight
-            val newY = learningY - newHeight
+            val easyY = masteredY - easyHeight
+            val hardY = easyY - hardHeight
+            val newY = hardY - newHeight
             
             mapOf(
                 "x" to x,
                 "bottom" to bottom,
                 "mastered" to masteredY,
-                "review" to reviewY,
-                "learning" to learningY,
+                "easy" to easyY,
+                "hard" to hardY,
                 "new" to newY
             )
         }
         
         if (points.isEmpty()) return@Canvas
         
-        // Draw mastered area (purple, bottom layer)
+        // Draw mastered area (sky blue, bottom layer)
         if (historyData.any { it.masteredCards > 0 }) {
             val masteredPath = Path().apply {
                 moveTo(points.first()["x"]!!, points.first()["bottom"]!!)
@@ -835,39 +840,39 @@ fun StackedAreaChart(
             drawPath(masteredPath, AppColors.CardMastered, alpha = 0.8f)
         }
         
-        // Draw review area (blue)
+        // Draw easy area (blue-purple)
         if (historyData.any { it.reviewCards > 0 }) {
-            val reviewPath = Path().apply {
+            val easyPath = Path().apply {
                 moveTo(points.first()["x"]!!, points.first()["mastered"]!!)
-                points.forEach { lineTo(it["x"]!!, it["review"]!!) }
+                points.forEach { lineTo(it["x"]!!, it["easy"]!!) }
                 for (i in points.size - 1 downTo 0) {
                     lineTo(points[i]["x"]!!, points[i]["mastered"]!!)
                 }
                 close()
             }
-            drawPath(reviewPath, AppColors.CardReview, alpha = 0.8f)
+            drawPath(easyPath, AppColors.CardEasy, alpha = 0.8f)
         }
         
-        // Draw learning area (yellow)
+        // Draw hard area (purple-red)
         if (historyData.any { it.learningCards > 0 }) {
-            val learningPath = Path().apply {
-                moveTo(points.first()["x"]!!, points.first()["review"]!!)
-                points.forEach { lineTo(it["x"]!!, it["learning"]!!) }
+            val hardPath = Path().apply {
+                moveTo(points.first()["x"]!!, points.first()["easy"]!!)
+                points.forEach { lineTo(it["x"]!!, it["hard"]!!) }
                 for (i in points.size - 1 downTo 0) {
-                    lineTo(points[i]["x"]!!, points[i]["review"]!!)
+                    lineTo(points[i]["x"]!!, points[i]["easy"]!!)
                 }
                 close()
             }
-            drawPath(learningPath, AppColors.CardLearning, alpha = 0.8f)
+            drawPath(hardPath, AppColors.CardHard, alpha = 0.8f)
         }
         
-        // Draw new/unseen area (green, top layer)
+        // Draw new/unseen area (crimson, top layer)
         if (historyData.any { it.newCards > 0 }) {
             val newPath = Path().apply {
-                moveTo(points.first()["x"]!!, points.first()["learning"]!!)
+                moveTo(points.first()["x"]!!, points.first()["hard"]!!)
                 points.forEach { lineTo(it["x"]!!, it["new"]!!) }
                 for (i in points.size - 1 downTo 0) {
-                    lineTo(points[i]["x"]!!, points[i]["learning"]!!)
+                    lineTo(points[i]["x"]!!, points[i]["hard"]!!)
                 }
                 close()
             }
@@ -887,13 +892,13 @@ private fun ProgressOverviewLegend() {
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             LegendItem(label = "New", color = AppColors.CardNew)
-            LegendItem(label = "Review", color = AppColors.CardReview)
+            LegendItem(label = "Easy", color = AppColors.CardEasy)
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            LegendItem(label = "Learning", color = AppColors.CardLearning)
+            LegendItem(label = "Hard", color = AppColors.CardHard)
             LegendItem(label = "Mastered", color = AppColors.CardMastered)
         }
     }

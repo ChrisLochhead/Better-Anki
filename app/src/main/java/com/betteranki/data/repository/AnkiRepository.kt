@@ -26,8 +26,8 @@ class AnkiRepository(
                     deck = deck,
                     totalCards = getTotalCards(deck.id),
                     newCards = cardDao.getCardCountByStatus(deck.id, CardStatus.NEW),
-                    learningCards = cardDao.getCardCountByStatus(deck.id, CardStatus.LEARNING),
-                    reviewCards = cardDao.getCardCountByStatus(deck.id, CardStatus.REVIEW),
+                    hardCards = cardDao.getCardCountByStatus(deck.id, CardStatus.HARD),
+                    easyCards = cardDao.getCardCountByStatus(deck.id, CardStatus.EASY),
                     masteredCards = cardDao.getCardCountByStatus(deck.id, CardStatus.MASTERED),
                     dueForReview = cardDao.getDueCardCount(deck.id, currentTime)
                 )
@@ -37,8 +37,8 @@ class AnkiRepository(
     
     private suspend fun getTotalCards(deckId: Long): Int {
         return cardDao.getCardCountByStatus(deckId, CardStatus.NEW) +
-                cardDao.getCardCountByStatus(deckId, CardStatus.LEARNING) +
-                cardDao.getCardCountByStatus(deckId, CardStatus.REVIEW) +
+                cardDao.getCardCountByStatus(deckId, CardStatus.HARD) +
+                cardDao.getCardCountByStatus(deckId, CardStatus.EASY) +
                 cardDao.getCardCountByStatus(deckId, CardStatus.MASTERED)
     }
     
@@ -53,24 +53,25 @@ class AnkiRepository(
             deck = deck,
             totalCards = getTotalCards(deck.id),
             newCards = cardDao.getCardCountByStatus(deck.id, CardStatus.NEW),
-            learningCards = cardDao.getCardCountByStatus(deck.id, CardStatus.LEARNING),
-            reviewCards = cardDao.getCardCountByStatus(deck.id, CardStatus.REVIEW),
+            hardCards = cardDao.getCardCountByStatus(deck.id, CardStatus.HARD),
+            easyCards = cardDao.getCardCountByStatus(deck.id, CardStatus.EASY),
             masteredCards = cardDao.getCardCountByStatus(deck.id, CardStatus.MASTERED),
             dueForReview = cardDao.getDueCardCount(deck.id, currentTime)
         )
     }
     
-    suspend fun getDueCards(deckId: Long): List<Card> {
-        return cardDao.getDueCards(deckId, System.currentTimeMillis())
+    suspend fun getDueCards(deckId: Long, currentTimeMillis: Long = System.currentTimeMillis()): List<Card> {
+        return cardDao.getDueCards(deckId, currentTimeMillis)
     }
     
     suspend fun getCardsToStudy(
         deckId: Long, 
         settings: StudySettings, 
         newCardsAlreadyStudied: Int = 0,
-        lastStudiedDate: Long? = null
+        lastStudiedDate: Long? = null,
+        currentTimeMillis: Long = System.currentTimeMillis()
     ): List<Card> {
-        val currentTime = System.currentTimeMillis()
+        val currentTime = currentTimeMillis
         var reviewCards = cardDao.getReviewDueCards(deckId, currentTime)
         
         // Calculate days skipped since last study
@@ -140,10 +141,10 @@ class AnkiRepository(
         // Interleave new cards with review cards using Anki's algorithm
         // Show review cards first, then interleave new cards at intervals
         // Anki typically shows 1 new card for every 3-4 review cards (or immediately if no reviews)
-        return interleaveCards(reviewCards, newCards)
+        return interleaveCards(reviewCards, newCards, currentTime)
     }
     
-    private fun interleaveCards(reviewCards: List<Card>, newCards: List<Card>): List<Card> {
+    private fun interleaveCards(reviewCards: List<Card>, newCards: List<Card>, currentTimeMillis: Long): List<Card> {
         if (reviewCards.isEmpty()) return newCards
         if (newCards.isEmpty()) return reviewCards
         
@@ -151,34 +152,30 @@ class AnkiRepository(
         var reviewIndex = 0
         var newIndex = 0
         
-        // Anki's algorithm: show new cards at intervals between reviews
-        // Ratio: typically 1 new card per 3-4 review cards (we'll use 3)
-        val reviewsBeforeNewCard = 3
+        // Sort review cards by next review date (closest to needing review first)
+        val sortedReviewCards = reviewCards.sortedBy { it.nextReviewDate ?: Long.MAX_VALUE }
         
-        while (reviewIndex < reviewCards.size || newIndex < newCards.size) {
-            // Add review cards (up to reviewsBeforeNewCard at a time)
-            var addedReviews = 0
-            while (reviewIndex < reviewCards.size && addedReviews < reviewsBeforeNewCard) {
-                result.add(reviewCards[reviewIndex])
-                reviewIndex++
-                addedReviews++
-            }
+        // Interleave: prioritize review cards, insert 1 new card after every 2-3 review cards.
+        // This ensures review cards are shown early and often, with new cards mixed in.
+        var cardsSinceLastNew = 0
+        val newCardInterval = 3 // Insert a new card after every 3 cards (if available)
+        
+        while (reviewIndex < sortedReviewCards.size || newIndex < newCards.size) {
+            val canShowNew = newIndex < newCards.size
+            val canShowReview = reviewIndex < sortedReviewCards.size
             
-            // Add one new card after the review cards
-            if (newIndex < newCards.size && addedReviews > 0) {
+            // Time to insert a new card?
+            val shouldShowNew = canShowNew && (cardsSinceLastNew >= newCardInterval || !canShowReview)
+            
+            if (shouldShowNew) {
                 result.add(newCards[newIndex])
                 newIndex++
+                cardsSinceLastNew = 0
+            } else if (canShowReview) {
+                result.add(sortedReviewCards[reviewIndex])
+                reviewIndex++
+                cardsSinceLastNew++
             }
-        }
-        
-        // Add any remaining cards
-        while (reviewIndex < reviewCards.size) {
-            result.add(reviewCards[reviewIndex])
-            reviewIndex++
-        }
-        while (newIndex < newCards.size) {
-            result.add(newCards[newIndex])
-            newIndex++
         }
         
         return result
@@ -188,13 +185,15 @@ class AnkiRepository(
         deckId: Long, 
         settings: StudySettings, 
         newCardsAlreadyStudied: Int = 0,
-        lastStudiedDate: Long? = null
+        lastStudiedDate: Long? = null,
+        currentTimeMillis: Long = System.currentTimeMillis()
     ): Int {
         val (reviewCount, newCount) = getStudyCountsForToday(
             deckId = deckId,
             settings = settings,
             newCardsAlreadyStudied = newCardsAlreadyStudied,
-            lastStudiedDate = lastStudiedDate
+            lastStudiedDate = lastStudiedDate,
+            currentTimeMillis = currentTimeMillis
         )
         return reviewCount + newCount
     }
@@ -208,9 +207,10 @@ class AnkiRepository(
         deckId: Long,
         settings: StudySettings,
         newCardsAlreadyStudied: Int = 0,
-        lastStudiedDate: Long? = null
+        lastStudiedDate: Long? = null,
+        currentTimeMillis: Long = System.currentTimeMillis()
     ): Pair<Int, Int> {
-        val currentTime = System.currentTimeMillis()
+        val currentTime = currentTimeMillis
         var reviewCount = cardDao.getReviewDueCards(deckId, currentTime).size
 
         // Calculate days skipped
@@ -271,25 +271,26 @@ class AnkiRepository(
         return cardDao.getCardsForDeck(deckId)
     }
     
-    suspend fun updateCardAfterReview(result: ReviewResult, settings: StudySettings) {
+    suspend fun updateCardAfterReview(
+        result: ReviewResult,
+        settings: StudySettings,
+        currentTimeMillis: Long = System.currentTimeMillis()
+    ) {
         val card = result.card
         val difficulty = calculateDifficulty(result.responseTime, result.correct, settings)
         
         val updatedCard = when (difficulty) {
             ReviewDifficulty.AGAIN -> {
-                // Failed - schedule for next day to avoid immediate re-showing in same session
-                // Calculate tomorrow at the same time
-                val calendar = Calendar.getInstance()
-                calendar.add(Calendar.DAY_OF_YEAR, 1)
-                val nextDayTime = calendar.timeInMillis
-                
+                // Failed - schedule soon (minutes), not "tomorrow".
+                // The UI already re-queues failed cards within the same session.
+                val nextTime = currentTimeMillis + (settings.againIntervalMinutes.coerceAtLeast(1) * 60 * 1000L)
                 card.copy(
-                    status = CardStatus.LEARNING,
+                    status = CardStatus.HARD,
                     repetitions = 0,
-                    interval = 0,
+                    interval = settings.againIntervalMinutes.coerceAtLeast(1),
                     easeFactor = maxOf(1.3f, card.easeFactor - 0.2f),
-                    lastReviewed = System.currentTimeMillis(),
-                    nextReviewDate = nextDayTime
+                    lastReviewed = currentTimeMillis,
+                    nextReviewDate = nextTime
                 )
             }
             ReviewDifficulty.HARD -> {
@@ -300,12 +301,12 @@ class AnkiRepository(
                     (card.interval * 1.2).toInt()
                 }
                 card.copy(
-                    status = CardStatus.LEARNING,
+                    status = CardStatus.HARD,
                     repetitions = card.repetitions + 1,
                     interval = maxOf(1, newInterval),
                     easeFactor = maxOf(1.3f, card.easeFactor - 0.15f),
-                    lastReviewed = System.currentTimeMillis(),
-                    nextReviewDate = System.currentTimeMillis() + (newInterval * 60 * 1000L)
+                    lastReviewed = currentTimeMillis,
+                    nextReviewDate = currentTimeMillis + (newInterval * 60 * 1000L)
                 )
             }
             ReviewDifficulty.GOOD -> {
@@ -315,14 +316,14 @@ class AnkiRepository(
                     card.interval == 0 -> settings.goodIntervalMinutes
                     else -> (card.interval * card.easeFactor).toInt()
                 }
-                val newStatus = if (newInterval >= settings.goodIntervalMinutes) CardStatus.REVIEW else CardStatus.LEARNING
+                val newStatus = if (newInterval >= settings.goodIntervalMinutes) CardStatus.EASY else CardStatus.HARD
                 
                 card.copy(
                     status = newStatus,
                     repetitions = card.repetitions + 1,
                     interval = newInterval,
-                    lastReviewed = System.currentTimeMillis(),
-                    nextReviewDate = System.currentTimeMillis() + (newInterval * 60 * 1000L)
+                    lastReviewed = currentTimeMillis,
+                    nextReviewDate = currentTimeMillis + (newInterval * 60 * 1000L)
                 )
             }
             ReviewDifficulty.EASY -> {
@@ -337,8 +338,8 @@ class AnkiRepository(
                     repetitions = card.repetitions + 1,
                     interval = newInterval,
                     easeFactor = card.easeFactor + 0.15f,
-                    lastReviewed = System.currentTimeMillis(),
-                    nextReviewDate = System.currentTimeMillis() + (newInterval * 60 * 1000L)
+                    lastReviewed = currentTimeMillis,
+                    nextReviewDate = currentTimeMillis + (newInterval * 60 * 1000L)
                 )
             }
         }
@@ -354,8 +355,7 @@ class AnkiRepository(
         return when {
             seconds < settings.easyThresholdSeconds -> ReviewDifficulty.EASY
             seconds < settings.goodThresholdSeconds -> ReviewDifficulty.GOOD
-            seconds < settings.hardThresholdSeconds -> ReviewDifficulty.HARD
-            else -> ReviewDifficulty.AGAIN // Too long, treat as failed
+            else -> ReviewDifficulty.HARD
         }
     }
     
@@ -364,8 +364,8 @@ class AnkiRepository(
         val existing = reviewHistoryDao.getHistoryForDate(deckId, today)
         
         val newCount = cardDao.getCardCountByStatus(deckId, CardStatus.NEW)
-        val learningCount = cardDao.getCardCountByStatus(deckId, CardStatus.LEARNING)
-        val reviewCount = cardDao.getCardCountByStatus(deckId, CardStatus.REVIEW)
+        val hardCount = cardDao.getCardCountByStatus(deckId, CardStatus.HARD)
+        val easyCount = cardDao.getCardCountByStatus(deckId, CardStatus.EASY)
         val masteredCount = cardDao.getCardCountByStatus(deckId, CardStatus.MASTERED)
         
         if (existing != null) {
@@ -373,8 +373,8 @@ class AnkiRepository(
                 existing.copy(
                     cardsReviewed = existing.cardsReviewed + 1,
                     newCards = newCount,
-                    learningCards = learningCount,
-                    reviewCards = reviewCount,
+                    learningCards = hardCount,
+                    reviewCards = easyCount,
                     masteredCards = masteredCount
                 )
             )
@@ -385,8 +385,8 @@ class AnkiRepository(
                     date = today,
                     cardsReviewed = 1,
                     newCards = newCount,
-                    learningCards = learningCount,
-                    reviewCards = reviewCount,
+                    learningCards = hardCount,
+                    reviewCards = easyCount,
                     masteredCards = masteredCount
                 )
             )
@@ -407,8 +407,8 @@ class AnkiRepository(
         val existing = reviewHistoryDao.getHistoryForDate(deckId, today)
         
         val newCount = cardDao.getCardCountByStatus(deckId, CardStatus.NEW)
-        val learningCount = cardDao.getCardCountByStatus(deckId, CardStatus.LEARNING)
-        val reviewCount = cardDao.getCardCountByStatus(deckId, CardStatus.REVIEW)
+        val hardCount = cardDao.getCardCountByStatus(deckId, CardStatus.HARD)
+        val easyCount = cardDao.getCardCountByStatus(deckId, CardStatus.EASY)
         val masteredCount = cardDao.getCardCountByStatus(deckId, CardStatus.MASTERED)
         
         if (existing != null) {
@@ -416,8 +416,8 @@ class AnkiRepository(
             reviewHistoryDao.updateHistory(
                 existing.copy(
                     newCards = newCount,
-                    learningCards = learningCount,
-                    reviewCards = reviewCount,
+                    learningCards = hardCount,
+                    reviewCards = easyCount,
                     masteredCards = masteredCount
                 )
             )
@@ -429,8 +429,8 @@ class AnkiRepository(
                     date = today,
                     cardsReviewed = 0,
                     newCards = newCount,
-                    learningCards = learningCount,
-                    reviewCards = reviewCount,
+                    learningCards = hardCount,
+                    reviewCards = easyCount,
                     masteredCards = masteredCount
                 )
             )

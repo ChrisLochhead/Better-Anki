@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.sp
 import com.betteranki.data.model.Deck
 import com.betteranki.ui.theme.AppColors
 
+private val LocalNumberFieldCommitSignal = compositionLocalOf { 0 }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -39,8 +41,24 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsState()
     val editingSettings by viewModel.editingSettings.collectAsState()
 
+    var numberFieldCommitSignal by remember { mutableIntStateOf(0) }
+    var pendingSave by remember { mutableStateOf(false) }
+
+    LaunchedEffect(pendingSave, numberFieldCommitSignal) {
+        if (!pendingSave) return@LaunchedEffect
+
+        // Give NumberField composables a chance to coerce empty -> 0
+        withFrameNanos { }
+        withFrameNanos { }
+
+        viewModel.saveSettings()
+        viewModel.showSaveDialog()
+        pendingSave = false
+    }
+
     var showNotificationsSettingsPrompt by remember { mutableStateOf(false) }
     
+    CompositionLocalProvider(LocalNumberFieldCommitSignal provides numberFieldCommitSignal) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -175,25 +193,18 @@ fun SettingsScreen(
                 label = "Easy threshold (very confident)",
                 value = editingSettings.easyThresholdSeconds,
                 onValueChange = { viewModel.updateEasyThreshold(it) },
-                helperText = "Less than ${editingSettings.easyThresholdSeconds}s = EASY"
+                helperText = "Less than ${editingSettings.easyThresholdSeconds}s = Easy"
             )
             
             NumberField(
                 label = "Good threshold (remembered well)",
                 value = editingSettings.goodThresholdSeconds,
                 onValueChange = { viewModel.updateGoodThreshold(it) },
-                helperText = "${editingSettings.easyThresholdSeconds}s - ${editingSettings.goodThresholdSeconds}s = GOOD"
-            )
-            
-            NumberField(
-                label = "Hard threshold (took a while)",
-                value = editingSettings.hardThresholdSeconds,
-                onValueChange = { viewModel.updateHardThreshold(it) },
-                helperText = "${editingSettings.goodThresholdSeconds}s - ${editingSettings.hardThresholdSeconds}s = HARD"
+                helperText = "${editingSettings.easyThresholdSeconds}s - ${editingSettings.goodThresholdSeconds}s = Good"
             )
             
             Text(
-                text = "Note: Times longer than ${editingSettings.hardThresholdSeconds}s are treated as AGAIN (didn't know it)",
+                text = "Note: Times longer than ${editingSettings.goodThresholdSeconds}s are treated as Hard",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
@@ -625,8 +636,8 @@ fun SettingsScreen(
             // Save Button
             Button(
                 onClick = {
-                    viewModel.saveSettings()
-                    viewModel.showSaveDialog()
+                    numberFieldCommitSignal += 1
+                    pendingSave = true
                 },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(2.dp)
@@ -634,6 +645,7 @@ fun SettingsScreen(
                 Text("Save Settings")
             }
         }
+    }
     }
     
     // Save as Preset Dialog
@@ -757,6 +769,7 @@ fun NumberField(
     showZeroAsEmpty: Boolean = false
 ) {
     var textValue by remember { mutableStateOf("") }
+    val commitSignal = LocalNumberFieldCommitSignal.current
 
     LaunchedEffect(value, showZeroAsEmpty) {
         if (showZeroAsEmpty && value == 0) {
@@ -769,18 +782,23 @@ fun NumberField(
             }
         }
     }
+
+    LaunchedEffect(commitSignal) {
+        if (commitSignal == 0) return@LaunchedEffect
+        if (textValue.isEmpty()) {
+            onValueChange(0)
+            textValue = "0"
+        }
+    }
     
     Column(modifier = modifier) {
         OutlinedTextField(
             value = textValue,
             onValueChange = { newValue ->
                 textValue = newValue
-                // Allow empty string, convert to 0
-                if (newValue.isEmpty()) {
-                    onValueChange(0)
-                } else {
-                    newValue.toIntOrNull()?.let { onValueChange(it) }
-                }
+                // Allow empty string without calling onValueChange immediately
+                // Only update if there's a valid number
+                newValue.toIntOrNull()?.let { onValueChange(it) }
             },
             label = { Text(label) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),

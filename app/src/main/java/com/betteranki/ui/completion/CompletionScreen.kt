@@ -243,15 +243,15 @@ fun CompletionScreen(
         Box(
             modifier = Modifier
                 .size((100 * scale).dp)
-                .background(AppColors.CardNew.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                .border(2.dp, AppColors.CardNew, RoundedCornerShape(4.dp)),
+                .background(AppColors.Primary.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                .border(2.dp, AppColors.Primary, RoundedCornerShape(4.dp)),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = Icons.Default.CheckCircle,
                 contentDescription = "Success",
                 modifier = Modifier.size((60 * scale).dp),
-                tint = AppColors.CardNew
+                tint = AppColors.Primary
             )
         }
         
@@ -290,7 +290,7 @@ fun CompletionScreen(
             StatCard(
                 title = "CORRECT",
                 value = state.correctCount.toString(),
-                color = AppColors.CardNew,
+                color = AppColors.CardMastered,
                 modifier = Modifier.weight(1f)
             )
             StatCard(
@@ -387,17 +387,17 @@ fun CompletionScreen(
                     ) {
                         Column {
                             Text(
-                                text = "LEARNING",
+                                text = "HARD",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 1.sp,
-                                color = AppColors.CardLearning.copy(alpha = 0.7f)
+                                color = AppColors.CardHard.copy(alpha = 0.7f)
                             )
                             Text(
-                                text = "${stats.learningCards}",
+                                text = "${stats.hardCards}",
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Black,
-                                color = AppColors.CardLearning
+                                color = AppColors.CardHard
                             )
                         }
                         Column(horizontalAlignment = Alignment.End) {
@@ -462,12 +462,13 @@ fun CompletionScreen(
         
         Spacer(modifier = Modifier.height(32.dp))
         
-        // Continue button - sharp and bold
+        // Continue button - sharp, fill + outline
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp)
-                .background(AppColors.Primary, RoundedCornerShape(4.dp))
+                .background(AppColors.Primary.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                .border(2.dp, AppColors.Primary, RoundedCornerShape(4.dp))
                 .clickable { onContinue() },
             contentAlignment = Alignment.Center
         ) {
@@ -476,7 +477,7 @@ fun CompletionScreen(
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Black,
                 letterSpacing = 3.sp,
-                color = AppColors.DarkBackground
+                color = AppColors.Primary
             )
         }
     }
@@ -779,29 +780,29 @@ fun StackedAreaChart(
             val x = paddingLeft + index * xStep
             
             val masteredHeight = (history.masteredCards.toFloat() / maxValue) * chartHeight
-            val reviewHeight = (history.reviewCards.toFloat() / maxValue) * chartHeight
-            val learningHeight = (history.learningCards.toFloat() / maxValue) * chartHeight
+            val easyHeight = (history.reviewCards.toFloat() / maxValue) * chartHeight
+            val hardHeight = (history.learningCards.toFloat() / maxValue) * chartHeight
             val newHeight = (history.newCards.toFloat() / maxValue) * chartHeight
             
             val bottom = paddingTop + chartHeight
             val masteredY = bottom - masteredHeight
-            val reviewY = masteredY - reviewHeight
-            val learningY = reviewY - learningHeight
-            val newY = learningY - newHeight
+            val easyY = masteredY - easyHeight
+            val hardY = easyY - hardHeight
+            val newY = hardY - newHeight
             
             mapOf(
                 "x" to x,
                 "bottom" to bottom,
                 "mastered" to masteredY,
-                "review" to reviewY,
-                "learning" to learningY,
+                "easy" to easyY,
+                "hard" to hardY,
                 "new" to newY
             )
         }
         
         if (points.isEmpty()) return@Canvas
         
-        // Draw mastered area (purple, bottom layer)
+        // Draw mastered area (sky blue, bottom layer)
         if (historyData.any { it.masteredCards > 0 }) {
             val masteredPath = Path().apply {
                 moveTo(points.first()["x"]!!, points.first()["bottom"]!!)
@@ -812,39 +813,39 @@ fun StackedAreaChart(
             drawPath(masteredPath, AppColors.CardMastered, alpha = 0.8f)
         }
         
-        // Draw review area (blue)
+        // Draw easy area (blue-purple)
         if (historyData.any { it.reviewCards > 0 }) {
-            val reviewPath = Path().apply {
+            val easyPath = Path().apply {
                 moveTo(points.first()["x"]!!, points.first()["mastered"]!!)
-                points.forEach { lineTo(it["x"]!!, it["review"]!!) }
+                points.forEach { lineTo(it["x"]!!, it["easy"]!!) }
                 for (i in points.size - 1 downTo 0) {
                     lineTo(points[i]["x"]!!, points[i]["mastered"]!!)
                 }
                 close()
             }
-            drawPath(reviewPath, AppColors.CardReview, alpha = 0.8f)
+            drawPath(easyPath, AppColors.CardEasy, alpha = 0.8f)
         }
         
-        // Draw learning area (yellow)
+        // Draw hard area (purple-red)
         if (historyData.any { it.learningCards > 0 }) {
-            val learningPath = Path().apply {
-                moveTo(points.first()["x"]!!, points.first()["review"]!!)
-                points.forEach { lineTo(it["x"]!!, it["learning"]!!) }
+            val hardPath = Path().apply {
+                moveTo(points.first()["x"]!!, points.first()["easy"]!!)
+                points.forEach { lineTo(it["x"]!!, it["hard"]!!) }
                 for (i in points.size - 1 downTo 0) {
-                    lineTo(points[i]["x"]!!, points[i]["review"]!!)
+                    lineTo(points[i]["x"]!!, points[i]["easy"]!!)
                 }
                 close()
             }
-            drawPath(learningPath, AppColors.CardLearning, alpha = 0.8f)
+            drawPath(hardPath, AppColors.CardHard, alpha = 0.8f)
         }
         
-        // Draw new/unseen area (green, top layer)
+        // Draw new/unseen area (crimson, top layer)
         if (historyData.any { it.newCards > 0 }) {
             val newPath = Path().apply {
-                moveTo(points.first()["x"]!!, points.first()["learning"]!!)
+                moveTo(points.first()["x"]!!, points.first()["hard"]!!)
                 points.forEach { lineTo(it["x"]!!, it["new"]!!) }
                 for (i in points.size - 1 downTo 0) {
-                    lineTo(points[i]["x"]!!, points[i]["learning"]!!)
+                    lineTo(points[i]["x"]!!, points[i]["hard"]!!)
                 }
                 close()
             }
@@ -866,13 +867,13 @@ private fun StackedAreaChartLegend(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             LegendItem(label = "New", color = AppColors.CardNew)
-            LegendItem(label = "Review", color = AppColors.CardReview)
+            LegendItem(label = "Easy", color = AppColors.CardEasy)
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            LegendItem(label = "Learning", color = AppColors.CardLearning)
+            LegendItem(label = "Hard", color = AppColors.CardHard)
             LegendItem(label = "Mastered", color = AppColors.CardMastered)
         }
     }

@@ -28,8 +28,8 @@ data class Card(
 )
 
 enum class CardStatus {
-    NEW,        // Never seen
-    LEARNING,   // Currently being learned
-    REVIEW,     // In review rotation
-    MASTERED    // Committed to memory
+    NEW,        // Never seen (crimson)
+    HARD,       // Currently being learned (red-blue interpolation)
+    EASY,       // Almost learned (red-blue interpolation)
+    MASTERED    // Committed to memory (light blue)
 }

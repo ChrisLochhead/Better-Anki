@@ -20,15 +20,21 @@ object AppColors {
     val Secondary = Color(0xFF3A4B63)
     val SecondaryDim = Color(0xFF2B3A4F)
     
-    // Card status colors - Monochrome blue range (less rainbow, more consistent)
-    val CardNew = Color(0xFF4C8FD8)           // Lighter blue
-    val CardNewDim = Color(0xFF3B74B0)
-    val CardLearning = Color(0xFF355C7D)      // Blue-gray
-    val CardLearningDim = Color(0xFF2A4963)
-    val CardReview = Color(0xFF2B6CB0)        // Primary blue
-    val CardReviewDim = Color(0xFF1F4D7A)
-    val CardMastered = Color(0xFF102A43)      // Dark blue (mastered)
-    val CardMasteredDim = Color(0xFF0B1E2F)
+    // Card status colors - Crimson to light blue gradient
+    val CardNew = Color(0xFFB01030)           // Dark crimson red
+    val CardNewDim = Color(0xFF8A0C24)
+    val CardHard = Color(0xFF8B4789)          // Purple-red (interpolation)
+    val CardHardDim = Color(0xFF6D3569)
+    val CardEasy = Color(0xFF4C8FD8)          // Blue-purple (interpolation)
+    val CardEasyDim = Color(0xFF3B74B0)
+    val CardMastered = Color(0xFF87CEEB)      // Sky blue (lighter than before)
+    val CardMasteredDim = Color(0xFF6BA5C8)
+    
+    // Legacy aliases for backward compatibility (map to new statuses)
+    val CardLearning = CardHard
+    val CardLearningDim = CardHardDim
+    val CardReview = CardEasy
+    val CardReviewDim = CardEasyDim
     
     // Feedback colors - Still semantic, but toned down (avoid neon)
     val Success = Color(0xFF2DA44E)

@@ -9,10 +9,8 @@ data class StudySettings(
     val goodIntervalMinutes: Int = 1440, // 1 day
     val easyIntervalMinutes: Int = 5760,  // 4 days
     // Response time thresholds (in seconds) for automatic difficulty calculation
-    val easyThresholdSeconds: Int = 60,    // < 60 seconds = EASY (very confident)
-    val goodThresholdSeconds: Int = 300,   // < 5 minutes = GOOD
-    val hardThresholdSeconds: Int = 86400,  // < 1 day = HARD (took a while)
-    // > hardThresholdSeconds = AGAIN (too long, treat as failed)
+    val easyThresholdSeconds: Int = 3,    // < 3 seconds = EASY (very confident)
+    val goodThresholdSeconds: Int = 5,   // < 5 seconds = GOOD
     
     // Leniency mode settings - prevents users from getting buried in reviews
     val leniencyModeEnabled: Boolean = true,

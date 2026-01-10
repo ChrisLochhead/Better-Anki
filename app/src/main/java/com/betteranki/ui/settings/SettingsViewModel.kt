@@ -101,10 +101,6 @@ class SettingsViewModel(
         _editingSettings.update { it.copy(goodThresholdSeconds = seconds) }
     }
     
-    fun updateHardThreshold(seconds: Int) {
-        _editingSettings.update { it.copy(hardThresholdSeconds = seconds) }
-    }
-    
     // Leniency Mode Settings
     fun updateLeniencyModeEnabled(enabled: Boolean) {
         _editingSettings.update { it.copy(leniencyModeEnabled = enabled) }

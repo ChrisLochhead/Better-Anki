@@ -10,19 +10,31 @@ interface CardDao {
     @Query("SELECT * FROM cards WHERE deckId = :deckId")
     fun getCardsForDeck(deckId: Long): Flow<List<Card>>
     
-    @Query("SELECT * FROM cards WHERE deckId = :deckId AND (status = 'NEW' OR (nextReviewDate IS NOT NULL AND nextReviewDate <= :currentTime))")
+    @Query(
+        "SELECT * FROM cards WHERE deckId = :deckId AND (" +
+            "status = 'NEW' OR " +
+            "(status != 'NEW' AND (nextReviewDate IS NULL OR nextReviewDate <= :currentTime))" +
+        ")"
+    )
     suspend fun getDueCards(deckId: Long, currentTime: Long): List<Card>
     
     @Query("SELECT * FROM cards WHERE deckId = :deckId AND status = 'NEW' LIMIT :limit")
     suspend fun getNewCards(deckId: Long, limit: Int): List<Card>
     
-    @Query("SELECT * FROM cards WHERE deckId = :deckId AND nextReviewDate IS NOT NULL AND nextReviewDate <= :currentTime")
+    @Query(
+        "SELECT * FROM cards WHERE deckId = :deckId AND status != 'NEW' AND (nextReviewDate IS NULL OR nextReviewDate <= :currentTime)"
+    )
     suspend fun getReviewDueCards(deckId: Long, currentTime: Long): List<Card>
     
     @Query("SELECT COUNT(*) FROM cards WHERE deckId = :deckId AND status = :status")
     suspend fun getCardCountByStatus(deckId: Long, status: CardStatus): Int
     
-    @Query("SELECT COUNT(*) FROM cards WHERE deckId = :deckId AND (status = 'NEW' OR (nextReviewDate IS NOT NULL AND nextReviewDate <= :currentTime))")
+    @Query(
+        "SELECT COUNT(*) FROM cards WHERE deckId = :deckId AND (" +
+            "status = 'NEW' OR " +
+            "(status != 'NEW' AND (nextReviewDate IS NULL OR nextReviewDate <= :currentTime))" +
+        ")"
+    )
     suspend fun getDueCardCount(deckId: Long, currentTime: Long): Int
     
     @Insert

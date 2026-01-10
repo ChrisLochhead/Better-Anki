@@ -68,6 +68,14 @@ class PreferencesRepository(private val context: Context) {
     val currentSettings: Flow<StudySettings> = context.dataStore.data.map { preferences ->
         val notificationDaysStr = preferences[PreferenceKeys.NOTIFICATION_DAYS] ?: "1,2,3,4,5,6,7"
         val notificationDays = notificationDaysStr.split(",").mapNotNull { it.toIntOrNull() }.toSet()
+
+        val easyThresholdStored = preferences[PreferenceKeys.EASY_THRESHOLD]
+        val goodThresholdStored = preferences[PreferenceKeys.GOOD_THRESHOLD]
+
+        // Migration: older builds used 60/300 as defaults. If those exact values are stored,
+        // treat them as legacy defaults and use the new 3/5 defaults instead.
+        val easyThresholdSeconds = if (easyThresholdStored == 60 && goodThresholdStored == 300) 3 else (easyThresholdStored ?: 3)
+        val goodThresholdSeconds = if (easyThresholdStored == 60 && goodThresholdStored == 300) 5 else (goodThresholdStored ?: 5)
         
         StudySettings(
             deckId = preferences[PreferenceKeys.CURRENT_DECK_ID] ?: -1L,
@@ -77,9 +85,8 @@ class PreferencesRepository(private val context: Context) {
             hardIntervalMinutes = preferences[PreferenceKeys.HARD_INTERVAL] ?: 5,
             goodIntervalMinutes = preferences[PreferenceKeys.GOOD_INTERVAL] ?: 1440,
             easyIntervalMinutes = preferences[PreferenceKeys.EASY_INTERVAL] ?: 5760,
-            easyThresholdSeconds = preferences[PreferenceKeys.EASY_THRESHOLD] ?: 60,
-            goodThresholdSeconds = preferences[PreferenceKeys.GOOD_THRESHOLD] ?: 300,
-            hardThresholdSeconds = preferences[PreferenceKeys.HARD_THRESHOLD] ?: 86400,
+            easyThresholdSeconds = easyThresholdSeconds,
+            goodThresholdSeconds = goodThresholdSeconds,
             leniencyModeEnabled = preferences[PreferenceKeys.LENIENCY_MODE_ENABLED] ?: true,
             maxNewCardsAfterSkip = preferences[PreferenceKeys.MAX_NEW_CARDS_AFTER_SKIP] ?: 30,
             maxReviewCards = preferences[PreferenceKeys.MAX_REVIEW_CARDS] ?: 50,
@@ -109,7 +116,6 @@ class PreferencesRepository(private val context: Context) {
             preferences[PreferenceKeys.EASY_INTERVAL] = settings.easyIntervalMinutes
             preferences[PreferenceKeys.EASY_THRESHOLD] = settings.easyThresholdSeconds
             preferences[PreferenceKeys.GOOD_THRESHOLD] = settings.goodThresholdSeconds
-            preferences[PreferenceKeys.HARD_THRESHOLD] = settings.hardThresholdSeconds
             preferences[PreferenceKeys.LENIENCY_MODE_ENABLED] = settings.leniencyModeEnabled
             preferences[PreferenceKeys.MAX_NEW_CARDS_AFTER_SKIP] = settings.maxNewCardsAfterSkip
             preferences[PreferenceKeys.MAX_REVIEW_CARDS] = settings.maxReviewCards
@@ -179,10 +185,10 @@ class PreferencesRepository(private val context: Context) {
         }
     }
     
-    suspend fun updateLastStudiedDate(deckId: Long) {
+    suspend fun updateLastStudiedDate(deckId: Long, currentTimeMillis: Long = System.currentTimeMillis()) {
         context.dataStore.edit { preferences ->
             val lastStudiedKey = longPreferencesKey("deck_${deckId}_last_studied")
-            preferences[lastStudiedKey] = System.currentTimeMillis()
+            preferences[lastStudiedKey] = currentTimeMillis
         }
     }
     

@@ -16,8 +16,8 @@ data class DeckWithStats(
     val deck: Deck,
     val totalCards: Int,
     val newCards: Int,
-    val learningCards: Int,
-    val reviewCards: Int,
+    val hardCards: Int,      // Previously learningCards
+    val easyCards: Int,      // Previously reviewCards
     val masteredCards: Int,
     val dueForReview: Int
 )

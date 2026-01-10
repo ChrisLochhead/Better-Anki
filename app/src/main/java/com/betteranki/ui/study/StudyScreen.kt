@@ -22,16 +22,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.betteranki.data.model.StudySettings
 import com.betteranki.ui.theme.AppColors
 import kotlin.math.absoluteValue
-import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -225,13 +224,6 @@ fun DebugTimerBar(
                         color = AppColors.CardReview,
                         modifier = Modifier.weight(1f)
                     )
-                    ThresholdIndicator(
-                        label = "HARD",
-                        threshold = settings.hardThresholdSeconds,
-                        elapsed = elapsedSeconds.toInt(),
-                        color = AppColors.CardLearning,
-                        modifier = Modifier.weight(1f)
-                    )
                 }
                 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -240,14 +232,12 @@ fun DebugTimerBar(
                 val currentRating = when {
                     elapsedSeconds < settings.easyThresholdSeconds -> "EASY"
                     elapsedSeconds < settings.goodThresholdSeconds -> "GOOD"
-                    elapsedSeconds < settings.hardThresholdSeconds -> "HARD"
-                    else -> "AGAIN"
+                    else -> "HARD"
                 }
                 val ratingColor = when {
                     elapsedSeconds < settings.easyThresholdSeconds -> AppColors.Success
                     elapsedSeconds < settings.goodThresholdSeconds -> AppColors.CardReview
-                    elapsedSeconds < settings.hardThresholdSeconds -> AppColors.Warning
-                    else -> AppColors.Error
+                    else -> AppColors.Warning
                 }
                 
                 Box(
@@ -324,32 +314,46 @@ fun SwipeableCard(
     onSwipeRight: () -> Unit
 ) {
     var offsetX by remember { mutableStateOf(0f) }
-    var offsetY by remember { mutableStateOf(0f) }
     val swipeThreshold = 100f
+
+    val density = LocalDensity.current
+    val flipRotation by animateFloatAsState(
+        targetValue = if (isFlipped) 180f else 0f,
+        animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
+        label = "flipRotation"
+    )
+    val showingBack = flipRotation > 90f
+    val canSwipe = isFlipped && showingBack
     
     // Track if this is the first card shown (for animation hint)
     var isFirstCard by remember { mutableStateOf(true) }
     var hasShownHint by remember { mutableStateOf(false) }
-    
-    // Animate swipe hint on first flipped card
-    val infiniteTransition = rememberInfiniteTransition(label = "swipeHint")
-    val hintOffsetX by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = if (isFirstCard && isFlipped && !hasShownHint) 40f else 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(800, easing = EaseInOutSine),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "hintAnimation"
-    )
+    var isHintRunning by remember { mutableStateOf(false) }
+
+    // Animate swipe hint on first flipped card (right -> center -> left -> center)
+    val hintOffsetX = remember { androidx.compose.animation.core.Animatable(0f) }
+
+    // Block all swipe/tap-to-answer interactions until the first hint completes.
+    val hintBlocking = isFirstCard && isFlipped && !hasShownHint
+    val canInteractForAnswer = canSwipe && !hintBlocking
     
     // Mark hint as shown after animation plays
-    LaunchedEffect(isFlipped) {
-        if (isFirstCard && isFlipped && !hasShownHint) {
-            kotlinx.coroutines.delay(3000) // Show hint for 3 seconds
-            hasShownHint = true
-            isFirstCard = false
-        }
+    LaunchedEffect(isFlipped, isFirstCard, hasShownHint) {
+        if (!isFirstCard || !isFlipped || hasShownHint) return@LaunchedEffect
+
+        isHintRunning = true
+
+        hintOffsetX.snapTo(0f)
+        // Right
+        hintOffsetX.animateTo(40f, animationSpec = tween(225, easing = EaseInOutSine))
+        hintOffsetX.animateTo(0f, animationSpec = tween(175, easing = EaseInOutSine))
+        // Left
+        hintOffsetX.animateTo(-40f, animationSpec = tween(225, easing = EaseInOutSine))
+        hintOffsetX.animateTo(0f, animationSpec = tween(175, easing = EaseInOutSine))
+
+        hasShownHint = true
+        isFirstCard = false
+        isHintRunning = false
     }
     
     Box(
@@ -449,13 +453,21 @@ fun SwipeableCard(
             Spacer(modifier = Modifier.height(16.dp))
             
             // Sharp-edged flashcard with accent border on swipe
+            val hintX = hintOffsetX.value
+            val hintTintColor = when {
+                hintX > 6f -> AppColors.Primary
+                hintX < -6f -> AppColors.Error
+                else -> null
+            }
+
             val cardBorderColor = when {
-                offsetX > swipeThreshold / 2 -> AppColors.CardNew
+                offsetX > swipeThreshold / 2 -> AppColors.Primary
                 offsetX < -swipeThreshold / 2 -> AppColors.Error
+                (offsetX == 0f && hintTintColor != null) -> hintTintColor
                 else -> AppColors.Border
             }
             val cardBgColor = when {
-                offsetX > swipeThreshold / 2 -> AppColors.CardNew.copy(alpha = 0.1f)
+                offsetX > swipeThreshold / 2 -> AppColors.Primary.copy(alpha = 0.1f)
                 offsetX < -swipeThreshold / 2 -> AppColors.Error.copy(alpha = 0.1f)
                 else -> AppColors.DarkSurface
             }
@@ -464,14 +476,16 @@ fun SwipeableCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(400.dp)
-                    .offset { IntOffset((offsetX + hintOffsetX).roundToInt(), offsetY.roundToInt()) }
-                    .rotate((offsetX + hintOffsetX) / 20f)
+                    .graphicsLayer {
+                        translationX = offsetX + hintX
+                        rotationZ = (offsetX + hintX) / 20f
+                    }
                     .background(cardBgColor, RoundedCornerShape(4.dp))
                     .border(2.dp, cardBorderColor, RoundedCornerShape(4.dp))
-                    .pointerInput(isFlipped) {
+                    .pointerInput(canInteractForAnswer) {
                         detectDragGestures(
                             onDragEnd = {
-                                if (isFlipped) {
+                                if (canInteractForAnswer) {
                                     when {
                                         offsetX > swipeThreshold -> {
                                             onSwipeRight()
@@ -482,56 +496,57 @@ fun SwipeableCard(
                                     }
                                 }
                                 offsetX = 0f
-                                offsetY = 0f
                             },
                             onDrag = { change, dragAmount ->
                                 change.consume()
-                                if (isFlipped) {
+                                if (canInteractForAnswer) {
                                     offsetX += dragAmount.x
-                                    offsetY += dragAmount.y
                                 }
                             }
                         )
                     }
                     .clickable(enabled = !isFlipped) { onFlip() }
-                    .graphicsLayer {
-                        rotationY = if (isFlipped) 180f else 0f
-                    }
             ) {
-                // Accent line at top
+                // Hint tint overlay (only when not dragging)
+                if (offsetX == 0f && hintTintColor != null) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(hintTintColor.copy(alpha = 0.10f), RoundedCornerShape(4.dp))
+                    )
+                }
+
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .background(if (isFlipped) AppColors.Secondary else AppColors.Primary)
-                        .align(Alignment.TopCenter)
-                )
-                
-                Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(24.dp)
-                        .verticalScroll(rememberScrollState())
                         .graphicsLayer {
-                            rotationY = if (isFlipped) 180f else 0f
-                        },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                            rotationY = flipRotation
+                            cameraDistance = 12f * density.density
+                        }
                 ) {
-                    // Side indicator
-                    Text(
-                        text = if (isFlipped) "ANSWER" else "QUESTION",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 3.sp,
-                        color = if (isFlipped) AppColors.Secondary else AppColors.Primary
-                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { rotationY = if (showingBack) 180f else 0f }
+                            .verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        // Side indicator
+                        Text(
+                            text = if (showingBack) "ANSWER" else "QUESTION",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 3.sp,
+                            color = if (showingBack) AppColors.Secondary else AppColors.Primary
+                        )
                     
                     Spacer(modifier = Modifier.height(20.dp))
                     
                     // Main text
                     Text(
-                        text = if (isFlipped) card.back else card.front,
+                        text = if (showingBack) card.back else card.front,
                         fontSize = 26.sp,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
@@ -539,7 +554,7 @@ fun SwipeableCard(
                     )
                     
                     // Description
-                    val description = if (isFlipped) card.backDescription else card.frontDescription
+                    val description = if (showingBack) card.backDescription else card.frontDescription
                     if (description.isNotBlank()) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
@@ -551,7 +566,7 @@ fun SwipeableCard(
                     }
                     
                     // Image
-                    val showImage = if (isFlipped) card.showImageOnBack else card.showImageOnFront
+                    val showImage = if (showingBack) card.showImageOnBack else card.showImageOnFront
                     if (showImage && card.imageUri != null) {
                         Spacer(modifier = Modifier.height(16.dp))
                         AsyncImage(
@@ -566,7 +581,7 @@ fun SwipeableCard(
                     }
                     
                     // Example sentence
-                    val showExample = if (isFlipped) card.showExampleOnBack else card.showExampleOnFront
+                    val showExample = if (showingBack) card.showExampleOnBack else card.showExampleOnFront
                     if (showExample && card.exampleSentence.isNotBlank()) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Box(
@@ -596,28 +611,38 @@ fun SwipeableCard(
                     }
                 }
             }
+
+            }
             
             Spacer(modifier = Modifier.height(24.dp))
             
-            // Sharp-edged buttons/indicators
-            if (!isFlipped) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.7f)
-                        .height(48.dp)
-                        .background(AppColors.Primary, RoundedCornerShape(2.dp))
-                        .clickable { onFlip() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "REVEAL ANSWER",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 2.sp,
-                        color = AppColors.DarkBackground
-                    )
-                }
-            } else {
+            // Fixed-height button area to prevent layout shift
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(72.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!isFlipped) {
+                    // Reveal button - fill+outline style
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.7f)
+                            .height(56.dp)
+                            .background(AppColors.Primary.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
+                            .border(2.dp, AppColors.Primary, RoundedCornerShape(2.dp))
+                            .clickable { onFlip() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "REVEAL ANSWER",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 2.sp,
+                            color = AppColors.Primary
+                        )
+                    }
+                } else {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -629,7 +654,7 @@ fun SwipeableCard(
                             .height(72.dp)
                             .background(AppColors.Error.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
                             .border(2.dp, AppColors.Error, RoundedCornerShape(2.dp))
-                            .clickable { onSwipeLeft() },
+                            .clickable(enabled = !hintBlocking) { onSwipeLeft() },
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -654,9 +679,9 @@ fun SwipeableCard(
                         modifier = Modifier
                             .weight(1f)
                             .height(72.dp)
-                            .background(AppColors.CardNew.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
-                            .border(2.dp, AppColors.CardNew, RoundedCornerShape(2.dp))
-                            .clickable { onSwipeRight() },
+                            .background(AppColors.Primary.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
+                            .border(2.dp, AppColors.Primary, RoundedCornerShape(2.dp))
+                            .clickable(enabled = !hintBlocking) { onSwipeRight() },
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -664,46 +689,19 @@ fun SwipeableCard(
                                 "→",
                                 fontSize = 24.sp,
                                 fontWeight = FontWeight.Black,
-                                color = AppColors.CardNew
+                                color = AppColors.Primary
                             )
                             Text(
                                 "KNOW IT",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 1.sp,
-                                color = AppColors.CardNew
+                                color = AppColors.Primary
                             )
                         }
                     }
                 }
-            }
-            
-            // Swipe indicators
-            if (isFlipped && offsetX.absoluteValue > 50f) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Box(
-                    modifier = Modifier
-                        .background(
-                            if (offsetX > 0) AppColors.CardNew.copy(alpha = 0.2f) 
-                            else AppColors.Error.copy(alpha = 0.2f),
-                            RoundedCornerShape(2.dp)
-                        )
-                        .border(
-                            1.dp,
-                            if (offsetX > 0) AppColors.CardNew else AppColors.Error,
-                            RoundedCornerShape(2.dp)
-                        )
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text = if (offsetX > 0) "GOT IT ✓" else "REVIEW AGAIN ✗",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.sp,
-                        color = if (offsetX > 0) AppColors.CardNew else AppColors.Error
-                    )
-                }
-            }
+            }            }            
         }
     }
 }
