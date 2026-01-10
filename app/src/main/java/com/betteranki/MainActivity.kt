@@ -287,7 +287,6 @@ fun AnkiApp(
             enterTransition = { fadeIn() },
             exitTransition = { fadeOut() }
         ) { backStackEntry ->
-        ) { backStackEntry ->
             val deckId = backStackEntry.arguments?.getLong("deckId") ?: return@composable
             val viewModel: StudyViewModel = viewModel(
                 factory = StudyViewModelFactory(repository, preferencesRepository, deckId)
