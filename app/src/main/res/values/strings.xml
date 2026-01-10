@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">Better Anki</string>
+    <string name="new_cards">New</string>
+    <string name="learning">Learning</string>
+    <string name="review">Review</string>
+    <string name="cards">cards</string>
+    <string name="study_now">Study Now</string>
+    <string name="congratulations">Congratulations!</string>
+    <string name="review_complete">Review Complete</string>
+    <string name="cards_learned">Cards Learned</string>
+    <string name="continue_button">Continue</string>
+</resources>
