@@ -327,6 +327,31 @@ fun SwipeableCard(
     var offsetY by remember { mutableStateOf(0f) }
     val swipeThreshold = 100f
     
+    // Track if this is the first card shown (for animation hint)
+    var isFirstCard by remember { mutableStateOf(true) }
+    var hasShownHint by remember { mutableStateOf(false) }
+    
+    // Animate swipe hint on first flipped card
+    val infiniteTransition = rememberInfiniteTransition(label = "swipeHint")
+    val hintOffsetX by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = if (isFirstCard && isFlipped && !hasShownHint) 40f else 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = EaseInOutSine),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "hintAnimation"
+    )
+    
+    // Mark hint as shown after animation plays
+    LaunchedEffect(isFlipped) {
+        if (isFirstCard && isFlipped && !hasShownHint) {
+            kotlinx.coroutines.delay(3000) // Show hint for 3 seconds
+            hasShownHint = true
+            isFirstCard = false
+        }
+    }
+    
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -439,8 +464,8 @@ fun SwipeableCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(400.dp)
-                    .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
-                    .rotate(offsetX / 20f)
+                    .offset { IntOffset((offsetX + hintOffsetX).roundToInt(), offsetY.roundToInt()) }
+                    .rotate((offsetX + hintOffsetX) / 20f)
                     .background(cardBgColor, RoundedCornerShape(4.dp))
                     .border(2.dp, cardBorderColor, RoundedCornerShape(4.dp))
                     .pointerInput(isFlipped) {
@@ -603,7 +628,8 @@ fun SwipeableCard(
                             .weight(1f)
                             .height(72.dp)
                             .background(AppColors.Error.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
-                            .border(2.dp, AppColors.Error, RoundedCornerShape(2.dp)),
+                            .border(2.dp, AppColors.Error, RoundedCornerShape(2.dp))
+                            .clickable { onSwipeLeft() },
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -629,7 +655,8 @@ fun SwipeableCard(
                             .weight(1f)
                             .height(72.dp)
                             .background(AppColors.CardNew.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
-                            .border(2.dp, AppColors.CardNew, RoundedCornerShape(2.dp)),
+                            .border(2.dp, AppColors.CardNew, RoundedCornerShape(2.dp))
+                            .clickable { onSwipeRight() },
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
