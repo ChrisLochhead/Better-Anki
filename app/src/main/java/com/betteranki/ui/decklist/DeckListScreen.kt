@@ -12,12 +12,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.window.DialogProperties as DialogProps
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,10 +46,19 @@ import com.betteranki.ui.theme.AppColors
 import com.betteranki.data.preferences.PreferencesRepository
 import com.betteranki.data.repository.AnkiRepository
 import com.betteranki.util.AdHelper
+import com.betteranki.util.AudioRecorder
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.PlayArrow
 import android.app.Activity
+
+// Helper function to format recording duration
+private fun formatRecordingDuration(millis: Long): String {
+    val seconds = millis / 1000
+    val minutes = seconds / 60
+    val remainingSeconds = seconds % 60
+    return String.format("%d:%02d", minutes, remainingSeconds)
+}
 
 private data class FabAnchor(val leftPx: Float, val topPx: Float, val rightPx: Float, val bottomPx: Float)
 
@@ -56,6 +70,8 @@ fun DeckListScreen(
     repository: AnkiRepository,
     onDeckClick: (Long) -> Unit,
     onSettingsClick: () -> Unit,
+    syncEnabled: Boolean = false,
+    onSyncClick: () -> Unit = {},
     onDebugSkipDay: () -> Unit = {},
     debugDayOffset: Int = 0,
     onOcrScan: (Long) -> Unit = {}
@@ -105,8 +121,9 @@ fun DeckListScreen(
     LaunchedEffect(importStatus) {
         when (val status = importStatus) {
             is DeckListViewModel.ImportStatus.Success -> {
+                val mediaInfo = if (status.mediaCount > 0) " with ${status.mediaCount} media files" else ""
                 snackbarHostState.showSnackbar(
-                    "Imported ${status.cardCount} cards into '${status.deckName}'"
+                    "Imported ${status.cardCount} cards$mediaInfo into '${status.deckName}'${status.warnings}"
                 )
                 viewModel.clearImportStatus()
             }
@@ -149,20 +166,39 @@ fun DeckListScreen(
                             letterSpacing = 3.sp,
                             color = AppColors.TextPrimary
                         )
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .background(AppColors.DarkSurfaceVariant, RoundedCornerShape(2.dp))
-                                .border(1.dp, AppColors.Border, RoundedCornerShape(2.dp))
-                                .clickable { onSettingsClick() },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Settings",
-                                tint = AppColors.Primary,
-                                modifier = Modifier.size(20.dp)
-                            )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .background(AppColors.DarkSurfaceVariant, RoundedCornerShape(2.dp))
+                                    .border(1.dp, AppColors.Border, RoundedCornerShape(2.dp))
+                                    .let {
+                                        if (syncEnabled) it.clickable { onSyncClick() } else it
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Sync,
+                                    contentDescription = "Sync",
+                                    tint = if (syncEnabled) AppColors.Primary else AppColors.TextTertiary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .background(AppColors.DarkSurfaceVariant, RoundedCornerShape(2.dp))
+                                    .border(1.dp, AppColors.Border, RoundedCornerShape(2.dp))
+                                    .clickable { onSettingsClick() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "Settings",
+                                    tint = AppColors.Primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                     // Accent line
@@ -234,6 +270,78 @@ fun DeckListScreen(
                 debugDayOffset = debugDayOffset
             )
         }
+        
+        // Loading dialog during import
+        val loadingStatus = importStatus as? DeckListViewModel.ImportStatus.Loading
+        if (loadingStatus != null) {
+            Dialog(
+                onDismissRequest = { /* Prevent dismissal during import */ },
+                properties = DialogProps(
+                    dismissOnBackPress = false, 
+                    dismissOnClickOutside = false,
+                    usePlatformDefaultWidth = false
+                )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.7f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .padding(32.dp)
+                            .width(280.dp),
+                        color = AppColors.DarkSurface,
+                        shape = RoundedCornerShape(4.dp),
+                        shadowElevation = 8.dp
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(24.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(48.dp),
+                                color = AppColors.Primary,
+                                strokeWidth = 4.dp
+                            )
+                            
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "IMPORTING DECK",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 2.sp,
+                                    color = AppColors.TextPrimary,
+                                    textAlign = TextAlign.Center
+                                )
+                                
+                                Text(
+                                    text = loadingStatus.phase,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = AppColors.Primary,
+                                    textAlign = TextAlign.Center
+                                )
+                                
+                                if (loadingStatus.progress.isNotEmpty()) {
+                                    Text(
+                                        text = loadingStatus.progress,
+                                        fontSize = 12.sp,
+                                        color = AppColors.TextSecondary,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     
     // Floating Action Buttons - Ad button (left) and Add button (right)
@@ -301,10 +409,12 @@ fun DeckListScreen(
     
     // Add card dialog
     showAddCardDialog?.let { deckId ->
+        val context = LocalContext.current
         AddCardDialog(
             onDismiss = { showAddCardDialog = null },
-            onAddManual = { front, back, frontDesc, backDesc, imageUri, showImageFront, showImageBack, example, showExampleFront, showExampleBack ->
+            onAddManual = { front, back, frontDesc, backDesc, imageUri, showImageFront, showImageBack, example, showExampleFront, showExampleBack, audioUri, showAudioFront, showAudioBack ->
                 viewModel.addCard(
+                    context = context,
                     deckId = deckId,
                     front = front,
                     back = back,
@@ -315,7 +425,10 @@ fun DeckListScreen(
                     showImageOnBack = showImageBack,
                     exampleSentence = example,
                     showExampleOnFront = showExampleFront,
-                    showExampleOnBack = showExampleBack
+                    showExampleOnBack = showExampleBack,
+                    audioUri = audioUri,
+                    audioOnFront = showAudioFront,
+                    audioOnBack = showAudioBack
                 )
                 showAddCardDialog = null
             },
@@ -501,12 +614,7 @@ fun DeckCard(
                     fontWeight = FontWeight.Black,
                     color = AppColors.TextPrimary,
                     letterSpacing = 1.sp,
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable { 
-                            newName = deckWithStats.deck.name
-                            showRenameDialog = true 
-                        }
+                    modifier = Modifier.weight(1f)
                 )
                 
                 // Sharp-edged add button
@@ -778,13 +886,14 @@ private fun MainMenuDialog(
 private fun MenuActionButton(
     text: String,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     enabled: Boolean = true,
     containerColor: Color = AppColors.DarkElevated,
     contentColor: Color = AppColors.TextPrimary
 ) {
     Button(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.then(Modifier.fillMaxWidth()),
         enabled = enabled,
         shape = RoundedCornerShape(2.dp),
         colors = ButtonDefaults.buttonColors(
@@ -867,25 +976,98 @@ fun NewDeckDialog(
 @Composable
 fun AddCardDialog(
     onDismiss: () -> Unit,
-    onAddManual: (String, String, String, String, String?, Boolean, Boolean, String, Boolean, Boolean) -> Unit,
-    onAddByPhoto: () -> Unit
+    onAddManual: (String, String, String, String, String?, Boolean, Boolean, String, Boolean, Boolean, String?, Boolean, Boolean) -> Unit,
+    onAddByPhoto: () -> Unit,
+    startWithManualEntry: Boolean = false,
+    initialFront: String = "",
+    initialBack: String = "",
+    initialFrontDescription: String = "",
+    initialBackDescription: String = "",
+    initialImageUri: String? = null,
+    initialShowImageFront: Boolean = true,
+    initialShowImageBack: Boolean = true,
+    initialExampleSentence: String = "",
+    initialShowExampleFront: Boolean = false,
+    initialShowExampleBack: Boolean = false,
+    initialAudioUri: String? = null,
+    initialShowAudioFront: Boolean = true,
+    initialShowAudioBack: Boolean = true
 ) {
-    var showManualEntry by remember { mutableStateOf(false) }
-    var front by remember { mutableStateOf("") }
-    var back by remember { mutableStateOf("") }
-    var frontDesc by remember { mutableStateOf("") }
-    var backDesc by remember { mutableStateOf("") }
-    var imageUri by remember { mutableStateOf<String?>(null) }
-    var showImageFront by remember { mutableStateOf(false) }
-    var showImageBack by remember { mutableStateOf(false) }
-    var exampleSentence by remember { mutableStateOf("") }
-    var showExampleFront by remember { mutableStateOf(false) }
-    var showExampleBack by remember { mutableStateOf(false) }
+    var showManualEntry by remember { mutableStateOf(startWithManualEntry) }
+    var front by remember { mutableStateOf(initialFront) }
+    var back by remember { mutableStateOf(initialBack) }
+    var frontDesc by remember { mutableStateOf(initialFrontDescription) }
+    var backDesc by remember { mutableStateOf(initialBackDescription) }
+    var imageUri by remember { mutableStateOf(initialImageUri) }
+    var showImageFront by remember { mutableStateOf(initialShowImageFront) }
+    var showImageBack by remember { mutableStateOf(initialShowImageBack) }
+    var exampleSentence by remember { mutableStateOf(initialExampleSentence) }
+    var showExampleFront by remember { mutableStateOf(initialShowExampleFront) }
+    var showExampleBack by remember { mutableStateOf(initialShowExampleBack) }
+    var audioUri by remember { mutableStateOf(initialAudioUri) }
+    var showAudioFront by remember { mutableStateOf(initialShowAudioFront) }
+    var showAudioBack by remember { mutableStateOf(initialShowAudioBack) }
+    var isRecording by remember { mutableStateOf(false) }
+    var audioRecorder by remember { mutableStateOf<AudioRecorder?>(null) }
+    var recordingDuration by remember { mutableStateOf(0L) }
+    var recordingStartTime by remember { mutableStateOf(0L) }
+    
+    val context = LocalContext.current
+    
+    // Timer for recording duration
+    LaunchedEffect(isRecording) {
+        if (isRecording) {
+            recordingStartTime = System.currentTimeMillis()
+            while (isRecording) {
+                kotlinx.coroutines.delay(100)
+                recordingDuration = System.currentTimeMillis() - recordingStartTime
+            }
+        } else {
+            recordingDuration = 0L
+        }
+    }
+    
+    // Permission launcher for audio recording
+    val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            // Start recording
+            audioRecorder = AudioRecorder(context)
+            val file = audioRecorder?.startRecording()
+            if (file != null) {
+                isRecording = true
+            }
+        }
+    }
     
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         imageUri = uri?.toString()
+    }
+    
+    val audioPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            // Copy audio to app storage
+            try {
+                val inputStream = context.contentResolver.openInputStream(it)
+                val fileName = "audio_${System.currentTimeMillis()}.mp3"
+                val outputFile = java.io.File(context.filesDir, "temp_audio")
+                outputFile.mkdirs()
+                val destFile = java.io.File(outputFile, fileName)
+                inputStream?.use { input ->
+                    destFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                audioUri = destFile.absolutePath
+            } catch (e: Exception) {
+                android.util.Log.e("AddCard", "Failed to copy audio", e)
+            }
+        }
     }
 
     Dialog(
@@ -978,6 +1160,25 @@ fun AddCardDialog(
                         Divider(color = AppColors.Divider)
 
                         Text("Image (Optional)", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = AppColors.TextPrimary)
+                        if (imageUri != null) {
+                            // Image preview
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(200.dp)
+                                    .background(AppColors.DarkSurface, RoundedCornerShape(4.dp))
+                                    .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
+                                    .clip(RoundedCornerShape(4.dp))
+                            ) {
+                                coil.compose.AsyncImage(
+                                    model = imageUri,
+                                    contentDescription = "Selected image",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
                         MenuActionButton(
                             text = if (imageUri != null) "Change image" else "Select image",
                             onClick = { imagePickerLauncher.launch("image/*") }
@@ -1007,6 +1208,141 @@ fun AddCardDialog(
                                         onCheckedChange = { showImageBack = it }
                                     )
                                     Text("Show on Back", fontSize = 12.sp, color = AppColors.TextPrimary)
+                                }
+                            }
+                        }
+
+                        Divider(color = AppColors.Divider)
+
+                        Text("Audio (Optional)", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = AppColors.TextPrimary)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            MenuActionButton(
+                                text = if (audioUri != null) "Change file" else "Select file",
+                                onClick = { audioPickerLauncher.launch("audio/*") },
+                                modifier = Modifier.weight(1f)
+                            )
+                            MenuActionButton(
+                                text = if (isRecording) "Stop" else "Record",
+                                onClick = {
+                                    if (isRecording) {
+                                        val file = audioRecorder?.stopRecording()
+                                        if (file != null) {
+                                            audioUri = file.absolutePath
+                                        }
+                                        isRecording = false
+                                    } else {
+                                        // Request permission and start recording
+                                        recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                    }
+                                },
+                                containerColor = if (isRecording) AppColors.Error else AppColors.Secondary,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        if (isRecording) {
+                            // Recording indicator with duration and visual feedback
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(AppColors.Error.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                                    .border(1.dp, AppColors.Error, RoundedCornerShape(4.dp))
+                                    .padding(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        // Pulsing red dot
+                                        Box(
+                                            modifier = Modifier
+                                                .size(12.dp)
+                                                .background(AppColors.Error, CircleShape)
+                                        )
+                                        Text(
+                                            "RECORDING",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = AppColors.Error
+                                        )
+                                    }
+                                    Text(
+                                        formatRecordingDuration(recordingDuration),
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AppColors.TextPrimary
+                                    )
+                                }
+                            }
+                        }
+                        if (audioUri != null) {
+                            val audioDuration = try {
+                                val mediaPlayer = android.media.MediaPlayer()
+                                mediaPlayer.setDataSource(audioUri)
+                                mediaPlayer.prepare()
+                                val duration = mediaPlayer.duration
+                                mediaPlayer.release()
+                                formatRecordingDuration(duration.toLong())
+                            } catch (e: Exception) {
+                                "Unknown"
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            ) {
+                                Text(
+                                    "Audio ${if (isRecording) "recording..." else "ready"} (${audioDuration})", 
+                                    fontSize = 12.sp, 
+                                    color = AppColors.TextSecondary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                // Trash icon to clear audio
+                                IconButton(
+                                    onClick = {
+                                        audioUri = null
+                                        showAudioFront = false
+                                        showAudioBack = false
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Clear audio",
+                                        tint = AppColors.Error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Checkbox(
+                                        checked = showAudioFront,
+                                        onCheckedChange = { showAudioFront = it }
+                                    )
+                                    Text("Play on Front", fontSize = 12.sp, color = AppColors.TextPrimary)
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Checkbox(
+                                        checked = showAudioBack,
+                                        onCheckedChange = { showAudioBack = it }
+                                    )
+                                    Text("Play on Back", fontSize = 12.sp, color = AppColors.TextPrimary)
                                 }
                             }
                         }
@@ -1074,7 +1410,10 @@ fun AddCardDialog(
                                     showImageBack,
                                     exampleSentence,
                                     showExampleFront,
-                                    showExampleBack
+                                    showExampleBack,
+                                    audioUri,
+                                    showAudioFront,
+                                    showAudioBack
                                 )
                             }
                         },

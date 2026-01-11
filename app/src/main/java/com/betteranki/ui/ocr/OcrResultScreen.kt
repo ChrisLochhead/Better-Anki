@@ -42,6 +42,9 @@ fun OcrResultScreen(
     val viewModel: OcrViewModel = viewModel(
         factory = OcrViewModelFactory(context)
     )
+    val deckListViewModel: com.betteranki.ui.decklist.DeckListViewModel = viewModel(
+        factory = com.betteranki.DeckListViewModelFactory(repository)
+    )
     
     // Get translation language settings
     val settings by preferencesRepository.currentSettings.collectAsState(
@@ -337,6 +340,8 @@ fun OcrResultScreen(
                             GeneratedCard(
                                 front = word,
                                 example = example,
+                                showExampleOnFront = example.isNotBlank(),
+                                showExampleOnBack = example.isNotBlank(),
                                 back = "",
                                 isTranslating = true
                             )
@@ -420,52 +425,48 @@ fun OcrResultScreen(
         }
     }
     
-    // Card creation dialog
+    // Full card creation dialog (same as manual add)
     if (showCardDialog) {
-        CardCreationDialog(
-            front = cardFront,
-            example = cardExample,
-            back = cardBack,
-            sourceLanguage = settings.ocrSourceLanguage,
-            defaultTargetLanguage = targetLanguage,
-            translationState = translationState,
-            onDismiss = { 
+        com.betteranki.ui.decklist.AddCardDialog(
+            onDismiss = {
                 showCardDialog = false
                 viewModel.resetTranslationState()
             },
-            onConfirm = { front, example, back ->
+            startWithManualEntry = true,
+            initialFront = cardFront,
+            initialBack = cardBack,
+            initialExampleSentence = cardExample,
+            initialShowExampleFront = cardExample.isNotBlank(),
+            initialShowExampleBack = cardExample.isNotBlank(),
+            onAddManual = { front, back, frontDesc, backDesc, imageUri, showImageFront, showImageBack, exampleSentence, showExampleFront, showExampleBack, audioUri, showAudioFront, showAudioBack ->
                 scope.launch {
-                    // Create new card
-                    val newCard = com.betteranki.data.model.Card(
+                    deckListViewModel.addCardSync(
+                        context = context,
                         deckId = deckId,
                         front = front,
-                        exampleSentence = example,
                         back = back,
-                        status = com.betteranki.data.model.CardStatus.NEW,
-                        createdAt = System.currentTimeMillis(),
-                        lastReviewed = null,
-                        nextReviewDate = null,
-                        interval = 0,
-                        easeFactor = 2.5f,
-                        repetitions = 0
+                        frontDescription = frontDesc,
+                        backDescription = backDesc,
+                        imageUri = imageUri,
+                        showImageOnFront = showImageFront,
+                        showImageOnBack = showImageBack,
+                        exampleSentence = exampleSentence,
+                        showExampleOnFront = showExampleFront,
+                        showExampleOnBack = showExampleBack,
+                        audioUri = audioUri,
+                        audioOnFront = showAudioFront,
+                        audioOnBack = showAudioBack
                     )
-                    
-                    // Insert card into database
-                    repository.insertCards(listOf(newCard))
-                    
                     showCardDialog = false
+                    selectedWord = null
+                    cardFront = ""
+                    cardBack = ""
+                    cardExample = ""
                     viewModel.resetTranslationState()
                     onCardCreated()
                 }
             },
-            onFrontChange = { cardFront = it },
-            onExampleChange = { cardExample = it },
-            onBackChange = { cardBack = it },
-            onTranslate = { text, targetLang, sourceLang ->
-                scope.launch {
-                    viewModel.translateText(text, targetLang, sourceLang)
-                }
-            }
+            onAddByPhoto = { }
         )
     }
     
@@ -535,23 +536,25 @@ fun OcrResultScreen(
             },
             onAddAll = { cards ->
                 scope.launch {
-                    val newCards = cards.map { card ->
-                        com.betteranki.data.model.Card(
+                    cards.forEach { card ->
+                        deckListViewModel.addCardSync(
+                            context = context,
                             deckId = deckId,
                             front = card.front,
-                            exampleSentence = card.example,
                             back = card.back,
-                            status = com.betteranki.data.model.CardStatus.NEW,
-                            createdAt = System.currentTimeMillis(),
-                            lastReviewed = null,
-                            nextReviewDate = null,
-                            interval = 0,
-                            easeFactor = 2.5f,
-                            repetitions = 0
+                            frontDescription = card.frontDescription,
+                            backDescription = card.backDescription,
+                            imageUri = card.imageUri,
+                            showImageOnFront = card.showImageOnFront,
+                            showImageOnBack = card.showImageOnBack,
+                            exampleSentence = card.example,
+                            showExampleOnFront = card.showExampleOnFront,
+                            showExampleOnBack = card.showExampleOnBack,
+                            audioUri = card.audioUri,
+                            audioOnFront = card.audioOnFront,
+                            audioOnBack = card.audioOnBack
                         )
                     }
-                    
-                    repository.insertCards(newCards)
                     showBatchReview = false
                     onCardCreated()
                 }
@@ -626,358 +629,4 @@ fun SentenceRow(
             }
         }
     }
-}
-
-@Composable
-fun CardCreationDialog(
-    front: String,
-    example: String,
-    back: String,
-    sourceLanguage: String,
-    defaultTargetLanguage: String,
-    translationState: TranslationState,
-    onDismiss: () -> Unit,
-    onConfirm: (String, String, String) -> Unit,
-    onFrontChange: (String) -> Unit,
-    onExampleChange: (String) -> Unit,
-    onBackChange: (String) -> Unit,
-    onTranslate: (String, String, String) -> Unit
-) {
-    var enableTranslation by remember { mutableStateOf(back.isNotBlank()) }
-    var selectedTargetLanguage by remember { mutableStateOf(defaultTargetLanguage) }
-    var selectedSourceLanguage by remember { mutableStateOf(sourceLanguage) }
-    var showTargetLanguageMenu by remember { mutableStateOf(false) }
-    var showSourceLanguageMenu by remember { mutableStateOf(false) }
-    var currentBack by remember { mutableStateOf(back) }
-    
-    // Update back field when translation completes
-    LaunchedEffect(translationState) {
-        if (translationState is TranslationState.Success) {
-            currentBack = translationState.result.translatedText
-            onBackChange(translationState.result.translatedText)
-        }
-    }
-    
-    val availableLanguages = mapOf(
-        "en" to "English 🇬🇧",
-        "es" to "Spanish 🇪🇸",
-        "fr" to "French 🇫🇷",
-        "de" to "German 🇩🇪",
-        "it" to "Italian 🇮🇹",
-        "pt" to "Portuguese 🇵🇹",
-        "ru" to "Russian 🇷🇺",
-        "zh" to "Chinese 🇨🇳",
-        "ko" to "Korean 🇰🇷",
-        "ja" to "Japanese 🇯🇵",
-        "ar" to "Arabic 🇸🇦",
-        "hi" to "Hindi 🇮🇳"
-    )
-    
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "CREATE FLASHCARD",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 2.sp,
-                color = AppColors.TextPrimary
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-            ) {
-                // Front
-                Text(
-                    text = "FRONT (WORD)",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary.copy(alpha = 0.6f),
-                    letterSpacing = 1.sp
-                )
-                OutlinedTextField(
-                    value = front,
-                    onValueChange = onFrontChange,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AppColors.Secondary,
-                        unfocusedBorderColor = AppColors.Secondary.copy(alpha = 0.5f),
-                        focusedTextColor = AppColors.TextPrimary,
-                        unfocusedTextColor = AppColors.TextPrimary
-                    )
-                )
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                // Example
-                Text(
-                    text = "EXAMPLE (CONTEXT SENTENCE)",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary.copy(alpha = 0.6f),
-                    letterSpacing = 1.sp
-                )
-                Text(
-                    text = "Edit to correct OCR errors or customize",
-                    fontSize = 9.sp,
-                    color = AppColors.TextPrimary.copy(alpha = 0.5f),
-                    modifier = Modifier.padding(bottom = 4.dp)
-                )
-                OutlinedTextField(
-                    value = example,
-                    onValueChange = onExampleChange,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    minLines = 2,
-                    maxLines = 4,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AppColors.Secondary,
-                        unfocusedBorderColor = AppColors.Secondary.copy(alpha = 0.5f),
-                        focusedTextColor = AppColors.TextPrimary,
-                        unfocusedTextColor = AppColors.TextPrimary
-                    )
-                )
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                
-                // Translation toggle
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "AUTO-TRANSLATE",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = AppColors.TextPrimary.copy(alpha = 0.7f),
-                        letterSpacing = 1.sp
-                    )
-                    Switch(
-                        checked = enableTranslation,
-                        onCheckedChange = { enabled ->
-                            enableTranslation = enabled
-                            if (enabled && currentBack.isBlank()) {
-                                // Trigger translation when enabled
-                                onTranslate(front, selectedTargetLanguage, selectedSourceLanguage)
-                            } else if (!enabled) {
-                                currentBack = ""
-                                onBackChange("")
-                            }
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = AppColors.CardNew,
-                            checkedTrackColor = AppColors.CardNew.copy(alpha = 0.5f),
-                            uncheckedThumbColor = AppColors.TextSecondary,
-                            uncheckedTrackColor = AppColors.TextSecondary.copy(alpha = 0.3f)
-                        )
-                    )
-                }
-                
-                // Language selection (shown only when translation is enabled)
-                if (enableTranslation) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    // Source language
-                    Text(
-                        text = "TRANSLATE FROM",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = AppColors.TextPrimary.copy(alpha = 0.6f),
-                        letterSpacing = 1.sp
-                    )
-                    
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(
-                            onClick = { showSourceLanguageMenu = true },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = AppColors.TextPrimary
-                            ),
-                            border = BorderStroke(1.dp, AppColors.Secondary.copy(alpha = 0.5f))
-                        ) {
-                            Text(
-                                text = availableLanguages[selectedSourceLanguage] ?: selectedSourceLanguage,
-                                fontSize = 14.sp
-                            )
-                        }
-                        
-                        DropdownMenu(
-                            expanded = showSourceLanguageMenu,
-                            onDismissRequest = { showSourceLanguageMenu = false },
-                            modifier = Modifier.background(AppColors.DarkSurface)
-                        ) {
-                            availableLanguages.forEach { (code, name) ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = name,
-                                            color = AppColors.TextPrimary
-                                        )
-                                    },
-                                    onClick = {
-                                        selectedSourceLanguage = code
-                                        showSourceLanguageMenu = false
-                                        // Trigger re-translation with new source language
-                                        onTranslate(front, selectedTargetLanguage, code)
-                                    }
-                                )
-                            }
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    // Target language
-                    Text(
-                        text = "TRANSLATE TO",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = AppColors.TextPrimary.copy(alpha = 0.6f),
-                        letterSpacing = 1.sp
-                    )
-                    
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(
-                            onClick = { showTargetLanguageMenu = true },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = AppColors.TextPrimary
-                            ),
-                            border = BorderStroke(1.dp, AppColors.Secondary.copy(alpha = 0.5f))
-                        ) {
-                            Text(
-                                text = availableLanguages[selectedTargetLanguage] ?: selectedTargetLanguage,
-                                fontSize = 14.sp
-                            )
-                        }
-                        
-                        DropdownMenu(
-                            expanded = showTargetLanguageMenu,
-                            onDismissRequest = { showTargetLanguageMenu = false },
-                            modifier = Modifier.background(AppColors.DarkSurface)
-                        ) {
-                            availableLanguages.forEach { (code, name) ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = name,
-                                            color = AppColors.TextPrimary
-                                        )
-                                    },
-                                    onClick = {
-                                        selectedTargetLanguage = code
-                                        showTargetLanguageMenu = false
-                                        // Trigger re-translation with new language
-                                        onTranslate(front, code, selectedSourceLanguage)
-                                        android.util.Log.d("CardDialog", "Re-translate: $front from $selectedSourceLanguage to $code")
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                // Back
-                Text(
-                    text = if (enableTranslation) "BACK (TRANSLATION)" else "BACK (ANSWER)",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary.copy(alpha = 0.6f),
-                    letterSpacing = 1.sp
-                )
-                
-                // Show translation status
-                if (enableTranslation && translationState is TranslationState.Translating) {
-                    Row(
-                        modifier = Modifier.padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(12.dp),
-                            strokeWidth = 2.dp,
-                            color = AppColors.TextPrimary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Translating...",
-                            fontSize = 11.sp,
-                            color = AppColors.TextPrimary.copy(alpha = 0.6f)
-                        )
-                    }
-                }
-                
-                // Show translation error
-                if (enableTranslation && translationState is TranslationState.Error) {
-                    Text(
-                        text = "Translation failed. Enter manually or disable translation.",
-                        fontSize = 11.sp,
-                        color = AppColors.Error,
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
-                }
-                
-                OutlinedTextField(
-                    value = currentBack,
-                    onValueChange = { 
-                        currentBack = it
-                        onBackChange(it)
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AppColors.Secondary,
-                        unfocusedBorderColor = AppColors.Secondary.copy(alpha = 0.5f),
-                        focusedTextColor = AppColors.TextPrimary,
-                        unfocusedTextColor = AppColors.TextPrimary
-                    ),
-                    placeholder = {
-                        if (enableTranslation && currentBack.isBlank()) {
-                            Text(
-                                text = "Translation will appear here...",
-                                color = AppColors.TextPrimary.copy(alpha = 0.4f)
-                            )
-                        }
-                    }
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(front, example, back) }
-            ) {
-                Text(
-                    text = "CREATE",
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.CardNew
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(
-                    text = "CANCEL",
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary
-                )
-            }
-        },
-        containerColor = AppColors.DarkSurface,
-        shape = RoundedCornerShape(8.dp)
-    )
 }

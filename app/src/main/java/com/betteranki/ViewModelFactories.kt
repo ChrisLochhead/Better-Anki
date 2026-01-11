@@ -10,6 +10,7 @@ import com.betteranki.ui.completion.CompletionViewModel
 import com.betteranki.ui.decklist.DeckListViewModel
 import com.betteranki.ui.settings.SettingsViewModel
 import com.betteranki.ui.study.StudyViewModel
+import com.betteranki.sync.FirebaseProgressSync
 
 class DeckListViewModelFactory(
     private val repository: AnkiRepository
@@ -26,12 +27,13 @@ class DeckListViewModelFactory(
 class StudyViewModelFactory(
     private val repository: AnkiRepository,
     private val preferencesRepository: PreferencesRepository,
-    private val deckId: Long
+    private val deckId: Long,
+    private val progressSync: FirebaseProgressSync?
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(StudyViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return StudyViewModel(repository, preferencesRepository, deckId) as T
+            return StudyViewModel(repository, preferencesRepository, deckId, progressSync) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
@@ -41,12 +43,13 @@ class SettingsViewModelFactory(
     private val repository: AnkiRepository,
     private val preferencesRepository: PreferencesRepository,
     private val settingsPresetDao: SettingsPresetDao,
-    private val context: Context
+    private val context: Context,
+    private val progressSync: FirebaseProgressSync?
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(SettingsViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return SettingsViewModel(repository, preferencesRepository, settingsPresetDao, context) as T
+            return SettingsViewModel(repository, preferencesRepository, settingsPresetDao, context, progressSync) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

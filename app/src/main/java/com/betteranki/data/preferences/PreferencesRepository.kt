@@ -45,6 +45,69 @@ class PreferencesRepository(private val context: Context) {
         // OCR translation settings
         val OCR_SOURCE_LANGUAGE = stringPreferencesKey("ocr_source_language")
         val OCR_TARGET_LANGUAGE = stringPreferencesKey("ocr_target_language")
+
+        // App review prompt
+        val APP_OPEN_COUNT = intPreferencesKey("app_open_count")
+        val REVIEW_PROMPT_SUPPRESSED_PERMANENTLY = booleanPreferencesKey("review_prompt_suppressed_permanently")
+        val REVIEW_PROMPT_SUPPRESS_UNTIL_OPEN_COUNT = intPreferencesKey("review_prompt_suppress_until_open_count")
+        val REVIEW_PROMPT_LAST_SHOWN_AT_OPEN_COUNT = intPreferencesKey("review_prompt_last_shown_at_open_count")
+
+        // Firebase sync
+        val AUTO_SYNC_AFTER_REVIEW = booleanPreferencesKey("auto_sync_after_review")
+    }
+
+    val appOpenCount: Flow<Int> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.APP_OPEN_COUNT] ?: 0
+    }
+
+    suspend fun incrementAppOpenCount(): Int {
+        var updated = 0
+        context.dataStore.edit { preferences ->
+            val current = preferences[PreferenceKeys.APP_OPEN_COUNT] ?: 0
+            updated = current + 1
+            preferences[PreferenceKeys.APP_OPEN_COUNT] = updated
+        }
+        return updated
+    }
+
+    val reviewPromptSuppressedPermanently: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.REVIEW_PROMPT_SUPPRESSED_PERMANENTLY] ?: false
+    }
+
+    val reviewPromptSuppressUntilOpenCount: Flow<Int> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.REVIEW_PROMPT_SUPPRESS_UNTIL_OPEN_COUNT] ?: 0
+    }
+
+    val reviewPromptLastShownAtOpenCount: Flow<Int> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.REVIEW_PROMPT_LAST_SHOWN_AT_OPEN_COUNT] ?: 0
+    }
+
+    suspend fun suppressReviewPromptPermanently() {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.REVIEW_PROMPT_SUPPRESSED_PERMANENTLY] = true
+        }
+    }
+
+    suspend fun suppressReviewPromptTemporarilyUntilOpenCount(openCount: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.REVIEW_PROMPT_SUPPRESS_UNTIL_OPEN_COUNT] = openCount
+        }
+    }
+
+    suspend fun setReviewPromptLastShownAtOpenCount(openCount: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.REVIEW_PROMPT_LAST_SHOWN_AT_OPEN_COUNT] = openCount
+        }
+    }
+
+    val autoSyncAfterReview: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.AUTO_SYNC_AFTER_REVIEW] ?: true
+    }
+
+    suspend fun setAutoSyncAfterReview(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.AUTO_SYNC_AFTER_REVIEW] = enabled
+        }
     }
     
     // Debug day offset for testing

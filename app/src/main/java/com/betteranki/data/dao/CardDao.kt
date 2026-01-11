@@ -7,8 +7,14 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface CardDao {
+    @Query("SELECT * FROM cards")
+    fun getAllCards(): Flow<List<Card>>
+
     @Query("SELECT * FROM cards WHERE deckId = :deckId")
     fun getCardsForDeck(deckId: Long): Flow<List<Card>>
+    
+    @Query("SELECT * FROM cards WHERE deckId = :deckId")
+    suspend fun getCardsForDeckSync(deckId: Long): List<Card>
     
     @Query(
         "SELECT * FROM cards WHERE deckId = :deckId AND (" +

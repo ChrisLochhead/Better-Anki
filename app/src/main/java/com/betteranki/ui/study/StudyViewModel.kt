@@ -8,6 +8,8 @@ import com.betteranki.data.model.ReviewResult
 import com.betteranki.data.model.StudySettings
 import com.betteranki.data.preferences.PreferencesRepository
 import com.betteranki.data.repository.AnkiRepository
+import com.betteranki.sync.FirebaseProgressSync
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,7 +38,8 @@ data class StudyState(
 class StudyViewModel(
     private val repository: AnkiRepository,
     private val preferencesRepository: PreferencesRepository,
-    private val deckId: Long
+    private val deckId: Long,
+    private val progressSync: FirebaseProgressSync?
 ) : ViewModel() {
     
     private val _state = MutableStateFlow(StudyState())
@@ -113,6 +116,8 @@ class StudyViewModel(
             val debugOffsetDays = preferencesRepository.debugDayOffset.first()
             val effectiveNow = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(debugOffsetDays.toLong())
 
+            val autoSyncAfterReview = preferencesRepository.autoSyncAfterReview.first()
+
             // Check if this is the first time seeing this card (it's in unseenNewCardIds)
             val isFirstTimeNewCard = currentState.unseenNewCardIds.contains(card.id)
             
@@ -120,17 +125,30 @@ class StudyViewModel(
             if (isFirstTimeNewCard && correct) {
                 preferencesRepository.incrementNewCardsStudied(deckId)
             }
-            
-            // Update card in database
-            repository.updateCardAfterReview(
-                ReviewResult(
-                    card = card,
-                    responseTime = responseTime,
-                    correct = correct
-                ),
-                settings,
-                currentTimeMillis = effectiveNow
-            )
+
+            // Update card scheduling + history and optionally sync in the background.
+            // This keeps the UI snappy when advancing to the next card.
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching {
+                    val updatedCard = repository.updateCardAfterReview(
+                        ReviewResult(
+                            card = card,
+                            responseTime = responseTime,
+                            correct = correct
+                        ),
+                        settings,
+                        currentTimeMillis = effectiveNow
+                    )
+
+                    if (autoSyncAfterReview) {
+                        progressSync?.uploadCardProgress(
+                            deckId = deckId,
+                            card = updatedCard,
+                            updatedAtMillis = effectiveNow
+                        )
+                    }
+                }
+            }
             
             // Determine if card should be re-queued
             // Re-queue if: failed OR answered but took too long (not confident)

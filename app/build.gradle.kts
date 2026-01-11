@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -103,6 +104,14 @@ dependencies {
     
     // Google AdMob
     implementation("com.google.android.gms:play-services-ads:22.6.0")
+
+    // Google Play In-App Review
+    implementation("com.google.android.play:review:2.0.1")
+
+    // Firebase (Auth + Firestore) for account + progress sync
+    implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-firestore-ktx")
     
     // Guava (required for AdMob and CameraX compatibility)
     implementation("com.google.guava:guava:31.1-android")

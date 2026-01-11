@@ -1,23 +1,50 @@
 package com.betteranki
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -42,8 +69,11 @@ import java.util.concurrent.TimeUnit
 import com.betteranki.ui.study.StudyScreen
 import com.betteranki.ui.study.StudyViewModel
 import com.betteranki.ui.theme.BetterAnkiTheme
+import com.betteranki.ui.theme.AppColors
 import com.betteranki.ui.ocr.OcrViewModel
 import com.betteranki.ui.ocr.OcrViewModelFactory
+import com.google.android.play.core.review.ReviewManagerFactory
+import com.betteranki.sync.FirebaseProgressSync
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -136,15 +166,136 @@ fun AnkiApp(
     val navController = rememberNavController()
     val debugDayOffset by preferencesRepository.debugDayOffset.collectAsState(initial = 0)
     val coroutineScope = rememberCoroutineScope()
+
+    // Firebase sync is optional: it will be null until google-services.json is configured.
+    val progressSync = remember {
+        FirebaseProgressSync.createOrNull(
+            context = context,
+            deckDao = database.deckDao(),
+            cardDao = database.cardDao()
+        )
+    }
+
+    val firebaseUserState = progressSync?.currentUser?.collectAsState(initial = null)
+    val canSync = firebaseUserState?.value != null
+
+    val appOpenCount by preferencesRepository.appOpenCount.collectAsState(initial = 0)
+    val reviewPromptSuppressedPermanently by preferencesRepository.reviewPromptSuppressedPermanently.collectAsState(initial = false)
+    val reviewPromptSuppressUntilOpenCount by preferencesRepository.reviewPromptSuppressUntilOpenCount.collectAsState(initial = 0)
+    val reviewPromptLastShownAtOpenCount by preferencesRepository.reviewPromptLastShownAtOpenCount.collectAsState(initial = 0)
+    var showReviewPrompt by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        preferencesRepository.incrementAppOpenCount()
+    }
+
+    LaunchedEffect(
+        appOpenCount,
+        reviewPromptSuppressedPermanently,
+        reviewPromptSuppressUntilOpenCount,
+        reviewPromptLastShownAtOpenCount
+    ) {
+        val shouldShow =
+            !reviewPromptSuppressedPermanently &&
+                appOpenCount >= 3 &&
+                appOpenCount % 3 == 0 &&
+                appOpenCount >= reviewPromptSuppressUntilOpenCount &&
+                reviewPromptLastShownAtOpenCount != appOpenCount
+
+        if (shouldShow) {
+            showReviewPrompt = true
+            preferencesRepository.setReviewPromptLastShownAtOpenCount(appOpenCount)
+        }
+    }
+
+    if (showReviewPrompt) {
+        val activity = LocalContext.current as? Activity
+        AlertDialog(
+            onDismissRequest = {
+                showReviewPrompt = false
+                coroutineScope.launch {
+                    preferencesRepository.suppressReviewPromptTemporarilyUntilOpenCount(appOpenCount + 3)
+                }
+            },
+            title = {
+                Text(
+                    text = "Enjoying Better Anki?",
+                    color = AppColors.TextPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "If the app is helping, would you mind leaving a quick review?",
+                    color = AppColors.TextSecondary
+                )
+            },
+            confirmButton = {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ReviewPromptButton(
+                        text = "Not now",
+                        accent = AppColors.Border,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        showReviewPrompt = false
+                        coroutineScope.launch {
+                            preferencesRepository.suppressReviewPromptTemporarilyUntilOpenCount(appOpenCount + 3)
+                        }
+                    }
+
+                    ReviewPromptButton(
+                        text = "Don't ask again",
+                        accent = AppColors.Error,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        showReviewPrompt = false
+                        coroutineScope.launch {
+                            preferencesRepository.suppressReviewPromptPermanently()
+                        }
+                    }
+
+                    ReviewPromptButton(
+                        text = "Leave a review",
+                        accent = AppColors.Primary,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        showReviewPrompt = false
+                        coroutineScope.launch {
+                            preferencesRepository.suppressReviewPromptPermanently()
+                        }
+
+                        if (activity != null) {
+                            launchInAppReview(activity)
+                        } else {
+                            openPlayStoreListing(context)
+                        }
+                    }
+                }
+            },
+            dismissButton = {},
+            shape = RoundedCornerShape(2.dp),
+            containerColor = AppColors.DarkSurface,
+            titleContentColor = AppColors.TextPrimary,
+            textContentColor = AppColors.TextSecondary
+        )
+    }
+
+    
     
     NavHost(
         navController = navController,
-        startDestination = Screen.DeckList.route
+        startDestination = Screen.DeckList.route,
+        enterTransition = { EnterTransition.None },
+        exitTransition = { ExitTransition.None },
+        popEnterTransition = { EnterTransition.None },
+        popExitTransition = { ExitTransition.None }
     ) {
         composable(
-            route = Screen.DeckList.route,
-            enterTransition = { fadeIn() },
-            exitTransition = { fadeOut() }
+            route = Screen.DeckList.route
         ) {
             val viewModel: DeckListViewModel = viewModel(
                 factory = DeckListViewModelFactory(repository)
@@ -154,10 +305,19 @@ fun AnkiApp(
                 preferencesRepository = preferencesRepository,
                 repository = repository,
                 onDeckClick = { deckId ->
-                    navController.navigate(Screen.DeckDetails.createRoute(deckId))
+                    navController.navigate(Screen.DeckDetails.createRoute(deckId)) {
+                        launchSingleTop = true
+                    }
                 },
                 onSettingsClick = {
                     navController.navigate(Screen.Settings.route)
+                },
+                syncEnabled = canSync,
+                onSyncClick = {
+                    if (!canSync) return@DeckListScreen
+                    coroutineScope.launch(Dispatchers.IO) {
+                        runCatching { progressSync?.syncAllDecksBidirectional() }
+                    }
                 },
                 onDebugSkipDay = {
                     coroutineScope.launch {
@@ -173,9 +333,7 @@ fun AnkiApp(
         
         composable(
             route = Screen.DeckDetails.route,
-            arguments = listOf(navArgument("deckId") { type = NavType.LongType }),
-            enterTransition = { fadeIn() },
-            exitTransition = { fadeOut() }
+            arguments = listOf(navArgument("deckId") { type = NavType.LongType })
         ) { backStackEntry ->
             val deckId = backStackEntry.arguments?.getLong("deckId") ?: return@composable
             val viewModel: DeckListViewModel = viewModel(
@@ -187,13 +345,13 @@ fun AnkiApp(
                 repository.ensureTodayHistorySnapshot(deckId)
             }
             
-            val decks by viewModel.decks.collectAsState()
             val cards by viewModel.getCardsForDeck(deckId).collectAsState(initial = emptyList())
             val reviewHistory by repository.getReviewHistory(deckId).collectAsState(initial = emptyList())
             val settings by preferencesRepository.currentSettings.collectAsState(initial = StudySettings())
             val newCardsStudiedToday by preferencesRepository.getNewCardsStudiedToday(deckId).collectAsState(initial = 0)
             val deckSettings by preferencesRepository.getDeckSettings(deckId).collectAsState(initial = DeckSettings(deckId = deckId))
-            val deckWithStats = decks.find { it.deck.id == deckId }
+            val deckWithStatsState by repository.getDeckWithStatsFlow(deckId).collectAsState(initial = null)
+            val deckWithStats = deckWithStatsState
             
             // Calculate actual due count respecting daily limits
             var actualDueCount by remember { mutableIntStateOf(0) }
@@ -214,6 +372,96 @@ fun AnkiApp(
             }
             
             if (deckWithStats != null) {
+                var showAddCardDialog by remember { mutableStateOf(false) }
+                
+                // Export status handling
+                val exportStatus by viewModel.exportStatus.collectAsState()
+                
+                // Export file picker
+                val exportApkgLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.CreateDocument("application/apkg")
+                ) { uri: Uri? ->
+                    uri?.let {
+                        viewModel.exportApkg(context, deckId, it)
+                    }
+                }
+                
+                // Show export dialog
+                exportStatus?.let { status ->
+                    AlertDialog(
+                        onDismissRequest = {
+                            if (status !is DeckListViewModel.ExportStatus.Loading) {
+                                viewModel.clearExportStatus()
+                            }
+                        },
+                        title = {
+                            Text(
+                                when (status) {
+                                    is DeckListViewModel.ExportStatus.Loading -> "Exporting..."
+                                    is DeckListViewModel.ExportStatus.Success -> "Export Complete"
+                                    is DeckListViewModel.ExportStatus.Error -> "Export Failed"
+                                }
+                            )
+                        },
+                        text = {
+                            Text(
+                                when (status) {
+                                    is DeckListViewModel.ExportStatus.Loading -> {
+                                        "${status.phase}\n${status.progress}"
+                                    }
+                                    is DeckListViewModel.ExportStatus.Success -> {
+                                        "Deck \"${status.deckName}\" exported successfully!\n${status.cardCount} cards, ${status.mediaCount} with media"
+                                    }
+                                    is DeckListViewModel.ExportStatus.Error -> {
+                                        status.message
+                                    }
+                                }
+                            )
+                        },
+                        confirmButton = {
+                            if (status !is DeckListViewModel.ExportStatus.Loading) {
+                                TextButton(onClick = { viewModel.clearExportStatus() }) {
+                                    Text("OK")
+                                }
+                            }
+                        }
+                    )
+                }
+                
+                // Add Card Dialog
+                if (showAddCardDialog) {
+                    val dialogContext = LocalContext.current
+                    com.betteranki.ui.decklist.AddCardDialog(
+                        onDismiss = { showAddCardDialog = false },
+                        startWithManualEntry = true,
+                        onAddManual = { front, back, frontDesc, backDesc, imageUri, showImageFront, showImageBack, 
+                                      exampleSentence, showExampleFront, showExampleBack, audioUri, showAudioFront, showAudioBack ->
+                            viewModel.addCard(
+                                context = dialogContext,
+                                deckId = deckId,
+                                front = front,
+                                back = back,
+                                frontDescription = frontDesc,
+                                backDescription = backDesc,
+                                imageUri = imageUri,
+                                showImageOnFront = showImageFront,
+                                showImageOnBack = showImageBack,
+                                exampleSentence = exampleSentence,
+                                showExampleOnFront = showExampleFront,
+                                showExampleOnBack = showExampleBack,
+                                audioUri = audioUri,
+                                audioOnFront = showAudioFront,
+                                audioOnBack = showAudioBack
+                            )
+                            showAddCardDialog = false
+                        },
+                        onAddByPhoto = {
+                            showAddCardDialog = false
+                            navController.navigate(Screen.OcrCamera.createRoute(deckId))
+                        }
+                    )
+                }
+                
                 DeckDetailsScreen(
                     deckWithStats = deckWithStats.copy(dueForReview = actualDueCount),
                     cards = cards,
@@ -225,7 +473,7 @@ fun AnkiApp(
                         navController.navigate(Screen.Study.createRoute(deckId))
                     },
                     onDeleteDeck = {
-                        viewModel.deleteDeck(deckId)
+                        viewModel.deleteDeck(context, deckId)
                         navController.popBackStack()
                     },
                     onFreezeDeck = { days ->
@@ -243,25 +491,43 @@ fun AnkiApp(
                     },
                     onViewAllCards = {
                         navController.navigate(Screen.AllCards.createRoute(deckId))
+                    },
+                    onExportDeck = {
+                        exportApkgLauncher.launch("${deckWithStats.deck.name}.apkg")
+                    },
+                    onAddCard = {
+                        showAddCardDialog = true
+                    },
+                    onRenameDeck = { newName ->
+                        coroutineScope.launch {
+                            val updatedDeck = deckWithStats.deck.copy(name = newName)
+                            repository.updateDeck(updatedDeck)
+                        }
                     }
                 )
+            } else {
+                // Show loading indicator while deck data loads
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = com.betteranki.ui.theme.AppColors.Primary)
+                }
             }
         }
         
         composable(
             route = Screen.AllCards.route,
-            arguments = listOf(navArgument("deckId") { type = NavType.LongType }),
-            enterTransition = { fadeIn() },
-            exitTransition = { fadeOut() }
+            arguments = listOf(navArgument("deckId") { type = NavType.LongType })
         ) { backStackEntry ->
             val deckId = backStackEntry.arguments?.getLong("deckId") ?: return@composable
             val viewModel: DeckListViewModel = viewModel(
                 factory = DeckListViewModelFactory(repository)
             )
             
-            val decks by viewModel.decks.collectAsState()
             val cards by viewModel.getCardsForDeck(deckId).collectAsState(initial = emptyList())
-            val deckWithStats = decks.find { it.deck.id == deckId }
+            val deckWithStatsState by repository.getDeckWithStatsFlow(deckId).collectAsState(initial = null)
+            val deckWithStats = deckWithStatsState
             
             if (deckWithStats != null) {
                 com.betteranki.ui.allcards.AllCardsScreen(
@@ -270,18 +536,33 @@ fun AnkiApp(
                     onBack = { navController.popBackStack() },
                     onUpdateCard = { card ->
                         viewModel.updateCard(card)
+                    },
+                    onDeleteCard = { card ->
+                        viewModel.deleteCard(card)
                     }
                 )
+            } else {
+                // Show loading indicator while deck data loads
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = com.betteranki.ui.theme.AppColors.Primary)
+                }
             }
         }
         
         composable(
-            route = Screen.Settings.route,
-            enterTransition = { fadeIn() },
-            exitTransition = { fadeOut() }
+            route = Screen.Settings.route
         ) {
             val viewModel: SettingsViewModel = viewModel(
-                factory = SettingsViewModelFactory(repository, preferencesRepository, database.settingsPresetDao(), context)
+                factory = SettingsViewModelFactory(
+                    repository,
+                    preferencesRepository,
+                    database.settingsPresetDao(),
+                    context,
+                    progressSync
+                )
             )
             SettingsScreen(
                 viewModel = viewModel,
@@ -291,13 +572,11 @@ fun AnkiApp(
         
         composable(
             route = Screen.Study.route,
-            arguments = listOf(navArgument("deckId") { type = NavType.LongType }),
-            enterTransition = { fadeIn() },
-            exitTransition = { fadeOut() }
+            arguments = listOf(navArgument("deckId") { type = NavType.LongType })
         ) { backStackEntry ->
             val deckId = backStackEntry.arguments?.getLong("deckId") ?: return@composable
             val viewModel: StudyViewModel = viewModel(
-                factory = StudyViewModelFactory(repository, preferencesRepository, deckId)
+                factory = StudyViewModelFactory(repository, preferencesRepository, deckId, progressSync)
             )
             StudyScreen(
                 viewModel = viewModel,
@@ -318,9 +597,7 @@ fun AnkiApp(
                 navArgument("deckId") { type = NavType.LongType },
                 navArgument("reviewed") { type = NavType.IntType },
                 navArgument("correct") { type = NavType.IntType }
-            ),
-            enterTransition = { fadeIn() },
-            exitTransition = { fadeOut() }
+            )
         ) { backStackEntry ->
             val deckId = backStackEntry.arguments?.getLong("deckId") ?: return@composable
             val reviewed = backStackEntry.arguments?.getInt("reviewed") ?: 0
@@ -342,9 +619,7 @@ fun AnkiApp(
         
         composable(
             route = Screen.OcrCamera.route,
-            arguments = listOf(navArgument("deckId") { type = NavType.LongType }),
-            enterTransition = { fadeIn() },
-            exitTransition = { fadeOut() }
+            arguments = listOf(navArgument("deckId") { type = NavType.LongType })
         ) { backStackEntry ->
             val deckId = backStackEntry.arguments?.getLong("deckId") ?: return@composable
             
@@ -371,9 +646,7 @@ fun AnkiApp(
                 navArgument("deckId") { type = NavType.LongType },
                 navArgument("imageUri") { type = NavType.StringType },
                 navArgument("rotation") { type = NavType.IntType }
-            ),
-            enterTransition = { fadeIn() },
-            exitTransition = { fadeOut() }
+            )
         ) { backStackEntry ->
             val deckId = backStackEntry.arguments?.getLong("deckId") ?: return@composable
             val encodedUri = backStackEntry.arguments?.getString("imageUri") ?: return@composable
@@ -405,9 +678,7 @@ fun AnkiApp(
                 navArgument("cropTop") { type = NavType.FloatType },
                 navArgument("cropRight") { type = NavType.FloatType },
                 navArgument("cropBottom") { type = NavType.FloatType }
-            ),
-            enterTransition = { fadeIn() },
-            exitTransition = { fadeOut() }
+            )
         ) { backStackEntry ->
             val deckId = backStackEntry.arguments?.getLong("deckId") ?: return@composable
             val encodedUri = backStackEntry.arguments?.getString("imageUri") ?: return@composable
@@ -453,9 +724,7 @@ fun AnkiApp(
         
         composable(
             route = Screen.OcrResult.route,
-            arguments = listOf(navArgument("deckId") { type = NavType.LongType }),
-            enterTransition = { fadeIn() },
-            exitTransition = { fadeOut() }
+            arguments = listOf(navArgument("deckId") { type = NavType.LongType })
         ) { backStackEntry ->
             val deckId = backStackEntry.arguments?.getLong("deckId") ?: return@composable
             
@@ -470,7 +739,7 @@ fun AnkiApp(
             if (recognizedText != null) {
                 com.betteranki.ui.ocr.OcrResultScreen(
                     deckId = deckId,
-                    recognizedText = recognizedText!!.fullText,
+                    recognizedText = recognizedText.fullText,
                     repository = repository,
                     preferencesRepository = preferencesRepository,
                     onBack = {
@@ -481,11 +750,7 @@ fun AnkiApp(
                         }
                     },
                     onCardCreated = {
-                        viewModel.resetState()
-                        navController.navigate(Screen.DeckList.route) {
-                            popUpTo(Screen.DeckList.route) { inclusive = true }
-                            launchSingleTop = true
-                        }
+                        // Stay on Select Text so multiple cards can be added
                     }
                 )
             } else {
@@ -498,5 +763,64 @@ fun AnkiApp(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ReviewPromptButton(
+    text: String,
+    accent: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier
+            .height(40.dp)
+            .background(accent.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
+            .border(2.dp, accent, RoundedCornerShape(2.dp)),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color.Transparent,
+            contentColor = accent
+        ),
+        shape = RoundedCornerShape(2.dp)
+    ) {
+        Text(text = text)
+    }
+}
+
+private fun launchInAppReview(activity: Activity) {
+    try {
+        val manager = ReviewManagerFactory.create(activity)
+        val request = manager.requestReviewFlow()
+        request.addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                val reviewInfo = task.result
+                manager.launchReviewFlow(activity, reviewInfo)
+            } else {
+                openPlayStoreListing(activity)
+            }
+        }
+    } catch (_: Exception) {
+        openPlayStoreListing(activity)
+    }
+}
+
+private fun openPlayStoreListing(context: Context) {
+    val packageName = context.packageName
+    val marketUri = Uri.parse("market://details?id=$packageName")
+    val webUri = Uri.parse("https://play.google.com/store/apps/details?id=$packageName")
+
+    val marketIntent = Intent(Intent.ACTION_VIEW, marketUri).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    val webIntent = Intent(Intent.ACTION_VIEW, webUri).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    try {
+        context.startActivity(marketIntent)
+    } catch (_: Exception) {
+        context.startActivity(webIntent)
     }
 }

@@ -8,6 +8,12 @@ import kotlinx.coroutines.flow.Flow
 interface DeckDao {
     @Query("SELECT * FROM decks ORDER BY createdAt DESC")
     fun getAllDecks(): Flow<List<Deck>>
+
+    @Query("SELECT * FROM decks ORDER BY createdAt DESC")
+    suspend fun getAllDecksSync(): List<Deck>
+
+    @Query("SELECT * FROM decks WHERE id = :deckId")
+    fun getDeckByIdFlow(deckId: Long): Flow<Deck?>
     
     @Query("SELECT * FROM decks WHERE id = :deckId")
     suspend fun getDeckById(deckId: Long): Deck?

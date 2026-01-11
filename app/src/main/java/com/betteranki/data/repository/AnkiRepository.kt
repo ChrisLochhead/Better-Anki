@@ -14,22 +14,65 @@ class AnkiRepository(
     private val deckDao: DeckDao,
     private val reviewHistoryDao: ReviewHistoryDao
 ) {
+
+    fun getDeckFlow(deckId: Long): Flow<Deck?> {
+        return deckDao.getDeckByIdFlow(deckId)
+    }
+
+    fun getDeckWithStatsFlow(deckId: Long): Flow<DeckWithStats?> {
+        return combine(
+            deckDao.getDeckByIdFlow(deckId),
+            cardDao.getCardsForDeck(deckId)
+        ) { deck, cards ->
+            deck ?: return@combine null
+            val currentTime = System.currentTimeMillis()
+
+            val newCount = cards.count { it.status == CardStatus.NEW }
+            val hardCount = cards.count { it.status == CardStatus.HARD }
+            val easyCount = cards.count { it.status == CardStatus.EASY }
+            val masteredCount = cards.count { it.status == CardStatus.MASTERED }
+            val dueCount = cards.count {
+                it.status == CardStatus.NEW ||
+                    (it.status != CardStatus.NEW && (it.nextReviewDate == null || it.nextReviewDate <= currentTime))
+            }
+
+            DeckWithStats(
+                deck = deck,
+                totalCards = cards.size,
+                newCards = newCount,
+                hardCards = hardCount,
+                easyCards = easyCount,
+                masteredCards = masteredCount,
+                dueForReview = dueCount
+            )
+        }
+    }
     
     fun getAllDecksWithStats(): Flow<List<DeckWithStats>> {
         return combine(
             deckDao.getAllDecks(),
-            cardDao.getCardsForDeck(-1) // Get all cards
-        ) { decks, _ ->
+            cardDao.getAllCards()
+        ) { decks, allCards ->
+            val currentTime = System.currentTimeMillis()
             decks.map { deck ->
-                val currentTime = System.currentTimeMillis()
+                val cards = allCards.filter { it.deckId == deck.id }
+                val newCount = cards.count { it.status == CardStatus.NEW }
+                val hardCount = cards.count { it.status == CardStatus.HARD }
+                val easyCount = cards.count { it.status == CardStatus.EASY }
+                val masteredCount = cards.count { it.status == CardStatus.MASTERED }
+                val dueCount = cards.count {
+                    it.status == CardStatus.NEW ||
+                        (it.status != CardStatus.NEW && (it.nextReviewDate == null || it.nextReviewDate <= currentTime))
+                }
+
                 DeckWithStats(
                     deck = deck,
-                    totalCards = getTotalCards(deck.id),
-                    newCards = cardDao.getCardCountByStatus(deck.id, CardStatus.NEW),
-                    hardCards = cardDao.getCardCountByStatus(deck.id, CardStatus.HARD),
-                    easyCards = cardDao.getCardCountByStatus(deck.id, CardStatus.EASY),
-                    masteredCards = cardDao.getCardCountByStatus(deck.id, CardStatus.MASTERED),
-                    dueForReview = cardDao.getDueCardCount(deck.id, currentTime)
+                    totalCards = cards.size,
+                    newCards = newCount,
+                    hardCards = hardCount,
+                    easyCards = easyCount,
+                    masteredCards = masteredCount,
+                    dueForReview = dueCount
                 )
             }
         }
@@ -271,11 +314,15 @@ class AnkiRepository(
         return cardDao.getCardsForDeck(deckId)
     }
     
+    suspend fun getCardsForDeckSync(deckId: Long): List<Card> {
+        return cardDao.getCardsForDeckSync(deckId)
+    }
+    
     suspend fun updateCardAfterReview(
         result: ReviewResult,
         settings: StudySettings,
         currentTimeMillis: Long = System.currentTimeMillis()
-    ) {
+    ): Card {
         val card = result.card
         val difficulty = calculateDifficulty(result.responseTime, result.correct, settings)
         
@@ -346,6 +393,8 @@ class AnkiRepository(
         
         cardDao.updateCard(updatedCard)
         updateReviewHistory(card.deckId, updatedCard.status)
+
+        return updatedCard
     }
     
     private fun calculateDifficulty(responseTime: Long, correct: Boolean, settings: StudySettings): ReviewDifficulty {
@@ -445,12 +494,20 @@ class AnkiRepository(
         return deckDao.insertDeck(deck)
     }
     
+    suspend fun updateDeck(deck: Deck) {
+        deckDao.updateDeck(deck)
+    }
+    
     suspend fun insertCards(cards: List<Card>) {
         cardDao.insertCards(cards)
     }
     
     suspend fun updateCard(card: Card) {
         cardDao.updateCard(card)
+    }
+    
+    suspend fun deleteCard(card: Card) {
+        cardDao.deleteCard(card)
     }
     
     suspend fun importDeck(deckName: String, cards: List<Card>): Long {

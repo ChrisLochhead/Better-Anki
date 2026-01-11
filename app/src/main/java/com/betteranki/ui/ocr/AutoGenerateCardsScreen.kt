@@ -30,6 +30,16 @@ data class GeneratedCard(
     val front: String,
     val example: String,
     val back: String = "",
+    val frontDescription: String = "",
+    val backDescription: String = "",
+    val imageUri: String? = null,
+    val showImageOnFront: Boolean = true,
+    val showImageOnBack: Boolean = true,
+    val showExampleOnFront: Boolean = false,
+    val showExampleOnBack: Boolean = false,
+    val audioUri: String? = null,
+    val audioOnFront: Boolean = true,
+    val audioOnBack: Boolean = true,
     val isTranslating: Boolean = false
 )
 
@@ -412,9 +422,12 @@ fun extractInterestingWords(
         .sortedByDescending { it.length }
         .take(maxCards)
         .map { word ->
+            val example = if (exampleType != ExampleType.NONE) wordToSegment[word] ?: "" else ""
             GeneratedCard(
                 front = word,
-                example = if (exampleType != ExampleType.NONE) wordToSegment[word] ?: "" else "",
+                example = example,
+                showExampleOnFront = example.isNotBlank(),
+                showExampleOnBack = example.isNotBlank(),
                 back = ""
             )
         }

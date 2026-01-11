@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "621429358668",
+    "project_id": "better-anki-15276",
+    "storage_bucket": "better-anki-15276.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:621429358668:android:c9a08465e8d98329b374e9",
+        "android_client_info": {
+          "package_name": "com.betteranki"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCUJyqdCMWZHiLDUHnnVqziKgcORgUIbpo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -17,12 +17,16 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,6 +44,10 @@ fun SettingsScreen(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val editingSettings by viewModel.editingSettings.collectAsState()
+
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
 
     var numberFieldCommitSignal by remember { mutableIntStateOf(0) }
     var pendingSave by remember { mutableStateOf(false) }
@@ -82,6 +90,131 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Account (Firebase)
+            Text(
+                text = "Account",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            if (!uiState.firebaseConfigured) {
+                Text(
+                    text = "Firebase isn't configured yet (add google-services.json to enable sync).",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else if (uiState.signedInEmail != null) {
+                Text(
+                    text = "Signed in as ${uiState.signedInEmail}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { viewModel.signOut() },
+                        enabled = !uiState.authBusy
+                    ) {
+                        Text("Sign out")
+                    }
+                }
+            } else {
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Email") },
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Password") },
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        val icon = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility
+                        val desc = if (passwordVisible) "Hide password" else "Show password"
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(icon, contentDescription = desc)
+                        }
+                    }
+                )
+                if (uiState.authError != null) {
+                    Text(
+                        text = uiState.authError ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 12.sp
+                    )
+                }
+                if (uiState.authStatus != null) {
+                    Text(
+                        text = uiState.authStatus ?: "",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { viewModel.signIn(email, password) },
+                        enabled = !uiState.authBusy && email.isNotBlank() && password.isNotBlank()
+                    ) {
+                        Text("Sign in")
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.signUp(email, password) },
+                        enabled = !uiState.authBusy && email.isNotBlank() && password.isNotBlank()
+                    ) {
+                        Text("Create account")
+                    }
+                }
+
+                if (uiState.showForgotPassword) {
+                    TextButton(
+                        onClick = { viewModel.sendPasswordReset(email) },
+                        enabled = !uiState.authBusy && email.isNotBlank()
+                    ) {
+                        Text("Forgot password?")
+                    }
+                }
+                if (uiState.authBusy) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Signing in…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Auto-sync after each review",
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Uploads progress automatically when you swipe",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = uiState.autoSyncAfterReview,
+                    onCheckedChange = { viewModel.setAutoSyncAfterReview(it) },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = AppColors.Primary,
+                        checkedTrackColor = AppColors.Primary.copy(alpha = 0.5f)
+                    )
+                )
+            }
+
+            Divider()
+
             // Preset Selection
             Row(
                 modifier = Modifier.fillMaxWidth(),

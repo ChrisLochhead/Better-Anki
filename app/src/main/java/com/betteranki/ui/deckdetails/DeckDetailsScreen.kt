@@ -7,7 +7,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
@@ -15,6 +17,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -57,11 +60,16 @@ fun DeckDetailsScreen(
     onFreezeDeck: (Int) -> Unit,
     onUnfreezeDeck: () -> Unit,
     onOcrScan: () -> Unit,
-    onViewAllCards: () -> Unit
+    onViewAllCards: () -> Unit,
+    onExportDeck: () -> Unit,
+    onAddCard: () -> Unit,
+    onRenameDeck: (String) -> Unit
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showFreezeDialog by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
     var freezeDays by remember { mutableStateOf("7") }
+    var newDeckName by remember { mutableStateOf(deckWithStats.deck.name) }
 
     Scaffold(
         topBar = {
@@ -115,9 +123,170 @@ fun DeckDetailsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Study Now Button (moved to top)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .background(
+                        if (deckWithStats.dueForReview > 0) AppColors.CardMastered.copy(alpha = 0.15f) else AppColors.DarkSurfaceVariant,
+                        RoundedCornerShape(2.dp)
+                    )
+                    .border(
+                        1.dp,
+                        if (deckWithStats.dueForReview > 0) AppColors.CardMastered else AppColors.Border.copy(alpha = 0.3f),
+                        RoundedCornerShape(2.dp)
+                    )
+                    .clickable(enabled = deckWithStats.dueForReview > 0) { onStudy() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (deckWithStats.dueForReview > 0)
+                        "STUDY NOW (${deckWithStats.dueForReview})"
+                    else
+                        "STUDY NOW",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.sp,
+                    color = if (deckWithStats.dueForReview > 0) AppColors.CardMastered else AppColors.TextTertiary
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(AppColors.Border)
+            )
+
+            // Progress Chart Section
+            Text(
+                text = "PROGRESS OVERVIEW",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 2.sp,
+                color = AppColors.TextTertiary
+            )
+
+            // Sharp progress card
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(AppColors.DarkSurface, RoundedCornerShape(4.dp))
+                    .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Stats bars
+                    ProgressBarItem(
+                        label = "New",
+                        count = newCardsDueToday,
+                        total = deckWithStats.totalCards,
+                        color = AppColors.CardNew
+                    )
+                    ProgressBarItem(
+                        label = "Hard",
+                        count = deckWithStats.hardCards,
+                        total = deckWithStats.totalCards,
+                        color = AppColors.CardHard
+                    )
+                    ProgressBarItem(
+                        label = "Easy",
+                        count = deckWithStats.easyCards,
+                        total = deckWithStats.totalCards,
+                        color = AppColors.CardEasy
+                    )
+                    ProgressBarItem(
+                        label = "Mastered",
+                        count = deckWithStats.masteredCards,
+                        total = deckWithStats.totalCards,
+                        color = AppColors.CardMastered
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Stacked Line Chart
+            Text(
+                text = "PROGRESS OVER TIME",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 2.sp,
+                color = AppColors.TextTertiary
+            )
+            
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                StackedAreaChart(
+                    reviewHistory = reviewHistory,
+                    totalCards = deckWithStats.totalCards,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp)
+                ) {
+                    ProgressOverviewLegend()
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(AppColors.Border)
+            )
+
+            // Buttons Section
+            // Rename Deck Button
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .background(AppColors.Primary.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
+                    .border(1.dp, AppColors.Primary, RoundedCornerShape(2.dp))
+                    .clickable { 
+                        newDeckName = deckWithStats.deck.name
+                        showRenameDialog = true 
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "RENAME DECK",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.sp,
+                    color = AppColors.Primary
+                )
+            }
+
             // Sharp View Cards Button
             Box(
                 modifier = Modifier
@@ -130,6 +299,44 @@ fun DeckDetailsScreen(
             ) {
                 Text(
                     text = "VIEW ALL CARDS (${cards.size})",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.sp,
+                    color = AppColors.Primary
+                )
+            }
+
+            // Export Deck Button
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .background(AppColors.Primary.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
+                    .border(1.dp, AppColors.Primary, RoundedCornerShape(2.dp))
+                    .clickable { onExportDeck() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "EXPORT AS .APKG",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.sp,
+                    color = AppColors.Primary
+                )
+            }
+
+            // Add Card Manually Button
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .background(AppColors.Primary.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
+                    .border(1.dp, AppColors.Primary, RoundedCornerShape(2.dp))
+                    .clickable { onAddCard() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "ADD CARD MANUALLY",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 2.sp,
@@ -297,137 +504,7 @@ fun DeckDetailsScreen(
                 }
             }
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(AppColors.Border)
-            )
-
-            // Progress Chart
-            Text(
-                text = "PROGRESS OVERVIEW",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 2.sp,
-                color = AppColors.TextTertiary
-            )
-
-            // Sharp progress card
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(AppColors.DarkSurface, RoundedCornerShape(4.dp))
-                    .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Stats bars
-                    ProgressBarItem(
-                        label = "New",
-                        count = newCardsDueToday, // Show new cards due today, not total new cards
-                        total = deckWithStats.totalCards,
-                        color = AppColors.CardNew
-                    )
-                    ProgressBarItem(
-                        label = "Hard",
-                        count = deckWithStats.hardCards,
-                        total = deckWithStats.totalCards,
-                        color = AppColors.CardHard
-                    )
-                    ProgressBarItem(
-                        label = "Easy",
-                        count = deckWithStats.easyCards,
-                        total = deckWithStats.totalCards,
-                        color = AppColors.CardEasy
-                    )
-                    ProgressBarItem(
-                        label = "Mastered",
-                        count = deckWithStats.masteredCards,
-                        total = deckWithStats.totalCards,
-                        color = AppColors.CardMastered
-                    )
-                }
-            
             Spacer(modifier = Modifier.height(16.dp))
-            
-            // Stacked Line Chart
-            Text(
-                text = "Progress Over Time",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-            
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                StackedAreaChart(
-                    reviewHistory = reviewHistory,
-                    totalCards = deckWithStats.totalCards,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp)
-                ) {
-                    ProgressOverviewLegend()
-                }
-            }
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            // Study Now Button
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .background(
-                        if (deckWithStats.dueForReview > 0) AppColors.Primary.copy(alpha = 0.15f) else AppColors.DarkSurfaceVariant,
-                        RoundedCornerShape(2.dp)
-                    )
-                    .border(
-                        1.dp,
-                        if (deckWithStats.dueForReview > 0) AppColors.Primary else AppColors.Border.copy(alpha = 0.3f),
-                        RoundedCornerShape(2.dp)
-                    )
-                    .clickable(enabled = deckWithStats.dueForReview > 0) { onStudy() },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = if (deckWithStats.dueForReview > 0)
-                        "STUDY NOW (${deckWithStats.dueForReview})"
-                    else
-                        "STUDY NOW",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 2.sp,
-                    color = if (deckWithStats.dueForReview > 0) AppColors.Primary else AppColors.TextTertiary
-                )
-            }
         }
     }
 
@@ -538,8 +615,70 @@ fun DeckDetailsScreen(
                 }
             }
         )
-    }
-}
+    }    
+    // Rename Deck Dialog
+    if (showRenameDialog) {
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            containerColor = AppColors.DarkSurface,
+            titleContentColor = AppColors.TextPrimary,
+            textContentColor = AppColors.TextSecondary,
+            shape = RoundedCornerShape(2.dp),
+            title = { 
+                Text(
+                    text = "Rename deck",
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.sp
+                )
+            },
+            text = { 
+                OutlinedTextField(
+                    value = newDeckName,
+                    onValueChange = { newDeckName = it },
+                    label = { Text("Deck Name") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AppColors.Primary,
+                        unfocusedBorderColor = AppColors.Border,
+                        focusedLabelColor = AppColors.Primary,
+                        cursorColor = AppColors.Primary,
+                        focusedTextColor = AppColors.TextPrimary,
+                        unfocusedTextColor = AppColors.TextPrimary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (newDeckName.isNotBlank()) {
+                            onRenameDeck(newDeckName)
+                            showRenameDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = AppColors.Primary
+                    )
+                ) {
+                    Text(
+                        text = "Save",
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showRenameDialog = false },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = AppColors.TextSecondary
+                    )
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }}
 
 @Composable
 fun ProgressBarItem(

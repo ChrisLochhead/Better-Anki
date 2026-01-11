@@ -31,9 +31,7 @@ fun CardBatchReviewScreen(
     onAddAll: (List<GeneratedCard>) -> Unit
 ) {
     var editingIndex by remember { mutableIntStateOf(-1) }
-    var editFront by remember { mutableStateOf("") }
-    var editExample by remember { mutableStateOf("") }
-    var editBack by remember { mutableStateOf("") }
+    var showEditDialog by remember { mutableStateOf(false) }
     
     Scaffold(
         topBar = {
@@ -123,28 +121,9 @@ fun CardBatchReviewScreen(
                     CardReviewItem(
                         card = card,
                         index = index,
-                        isEditing = editingIndex == index,
-                        editFront = editFront,
-                        editExample = editExample,
-                        editBack = editBack,
-                        onEditFrontChange = { editFront = it },
-                        onEditExampleChange = { editExample = it },
-                        onEditBackChange = { editBack = it },
                         onEdit = {
                             editingIndex = index
-                            editFront = card.front
-                            editExample = card.example
-                            editBack = card.back
-                        },
-                        onSave = {
-                            onUpdateCard(
-                                index,
-                                card.copy(front = editFront, example = editExample, back = editBack)
-                            )
-                            editingIndex = -1
-                        },
-                        onCancelEdit = {
-                            editingIndex = -1
+                            showEditDialog = true
                         },
                         onDelete = { onDeleteCard(index) }
                     )
@@ -152,22 +131,60 @@ fun CardBatchReviewScreen(
             }
         }
     }
+
+    if (showEditDialog && editingIndex in cards.indices) {
+        val card = cards[editingIndex]
+        com.betteranki.ui.decklist.AddCardDialog(
+            onDismiss = {
+                showEditDialog = false
+                editingIndex = -1
+            },
+            startWithManualEntry = true,
+            initialFront = card.front,
+            initialBack = card.back,
+            initialFrontDescription = card.frontDescription,
+            initialBackDescription = card.backDescription,
+            initialImageUri = card.imageUri,
+            initialShowImageFront = card.showImageOnFront,
+            initialShowImageBack = card.showImageOnBack,
+            initialExampleSentence = card.example,
+            initialShowExampleFront = card.showExampleOnFront,
+            initialShowExampleBack = card.showExampleOnBack,
+            initialAudioUri = card.audioUri,
+            initialShowAudioFront = card.audioOnFront,
+            initialShowAudioBack = card.audioOnBack,
+            onAddManual = { front, back, frontDesc, backDesc, imageUri, showImageFront, showImageBack, exampleSentence, showExampleFront, showExampleBack, audioUri, showAudioFront, showAudioBack ->
+                onUpdateCard(
+                    editingIndex,
+                    card.copy(
+                        front = front,
+                        back = back,
+                        frontDescription = frontDesc,
+                        backDescription = backDesc,
+                        imageUri = imageUri,
+                        showImageOnFront = showImageFront,
+                        showImageOnBack = showImageBack,
+                        example = exampleSentence,
+                        showExampleOnFront = showExampleFront,
+                        showExampleOnBack = showExampleBack,
+                        audioUri = audioUri,
+                        audioOnFront = showAudioFront,
+                        audioOnBack = showAudioBack
+                    )
+                )
+                showEditDialog = false
+                editingIndex = -1
+            },
+            onAddByPhoto = { }
+        )
+    }
 }
 
 @Composable
 fun CardReviewItem(
     card: GeneratedCard,
     index: Int,
-    isEditing: Boolean,
-    editFront: String,
-    editExample: String,
-    editBack: String,
-    onEditFrontChange: (String) -> Unit,
-    onEditExampleChange: (String) -> Unit,
-    onEditBackChange: (String) -> Unit,
     onEdit: () -> Unit,
-    onSave: () -> Unit,
-    onCancelEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(
@@ -196,154 +213,78 @@ fun CardReviewItem(
                     letterSpacing = 1.sp
                 )
                 
-                if (!isEditing) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        IconButton(
-                            onClick = onEdit,
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Edit",
-                                tint = AppColors.TextPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        IconButton(
-                            onClick = onDelete,
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Delete",
-                                tint = AppColors.Error,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IconButton(
+                        onClick = onEdit,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit",
+                            tint = AppColors.TextPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = AppColors.Error,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                 }
             }
             
             Spacer(modifier = Modifier.height(12.dp))
-            
-            if (isEditing) {
-                // Edit mode
-                OutlinedTextField(
-                    value = editFront,
-                    onValueChange = onEditFrontChange,
-                    label = { Text("Front") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AppColors.Secondary,
-                        focusedLabelColor = AppColors.Secondary,
-                        unfocusedBorderColor = AppColors.Border,
-                        unfocusedLabelColor = AppColors.TextSecondary,
-                        focusedTextColor = AppColors.TextPrimary,
-                        unfocusedTextColor = AppColors.TextPrimary
-                    )
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Front: ${card.front}",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary
                 )
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                if (card.example.isNotBlank() || editExample.isNotBlank()) {
-                    OutlinedTextField(
-                        value = editExample,
-                        onValueChange = onEditExampleChange,
-                        label = { Text("Example") },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = AppColors.Secondary,
-                            focusedLabelColor = AppColors.Secondary,
-                            unfocusedBorderColor = AppColors.Border,
-                            unfocusedLabelColor = AppColors.TextSecondary,
-                            focusedTextColor = AppColors.TextPrimary,
-                            unfocusedTextColor = AppColors.TextPrimary
-                        )
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-                
-                OutlinedTextField(
-                    value = editBack,
-                    onValueChange = onEditBackChange,
-                    label = { Text("Back (Translation)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AppColors.Secondary,
-                        focusedLabelColor = AppColors.Secondary,
-                        unfocusedBorderColor = AppColors.Border,
-                        unfocusedLabelColor = AppColors.TextSecondary,
-                        focusedTextColor = AppColors.TextPrimary,
-                        unfocusedTextColor = AppColors.TextPrimary
-                    )
-                )
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                ) {
-                    TextButton(onClick = onCancelEdit) {
-                        Text("Cancel", color = AppColors.TextSecondary)
-                    }
-                    Button(
-                        onClick = onSave,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = AppColors.DarkSurfaceVariant,
-                            contentColor = AppColors.TextPrimary
-                        )
-                    ) {
-                        Text("Save")
-                    }
-                }
-            } else {
-                // View mode
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+
+                if (card.example.isNotBlank()) {
                     Text(
-                        text = "Front: ${card.front}",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = AppColors.TextPrimary
+                        text = "Example: ${card.example}",
+                        fontSize = 12.sp,
+                        color = AppColors.TextSecondary
                     )
-                    
-                    if (card.example.isNotBlank()) {
+                }
+
+                if (card.isTranslating) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = AppColors.Secondary
+                        )
                         Text(
-                            text = "Example: ${card.example}",
+                            text = "Translating...",
                             fontSize = 12.sp,
                             color = AppColors.TextSecondary
                         )
                     }
-                    
-                    if (card.isTranslating) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = AppColors.Secondary
-                            )
-                            Text(
-                                text = "Translating...",
-                                fontSize = 12.sp,
-                                color = AppColors.TextSecondary
-                            )
-                        }
-                    } else if (card.back.isNotBlank()) {
-                        Text(
-                            text = "Back: ${card.back}",
-                            fontSize = 14.sp,
-                            color = AppColors.TextPrimary
-                        )
-                    } else {
-                        Text(
-                            text = "Back: (no translation)",
-                            fontSize = 12.sp,
-                            color = AppColors.TextSecondary.copy(alpha = 0.5f)
-                        )
-                    }
+                } else if (card.back.isNotBlank()) {
+                    Text(
+                        text = "Back: ${card.back}",
+                        fontSize = 14.sp,
+                        color = AppColors.TextPrimary
+                    )
+                } else {
+                    Text(
+                        text = "Back: (no translation)",
+                        fontSize = 12.sp,
+                        color = AppColors.TextSecondary.copy(alpha = 0.5f)
+                    )
                 }
             }
         }

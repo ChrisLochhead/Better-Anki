@@ -8,6 +8,10 @@ import com.betteranki.data.model.*
 import com.betteranki.data.preferences.PreferencesRepository
 import com.betteranki.data.repository.AnkiRepository
 import com.betteranki.util.NotificationHelper
+import com.betteranki.sync.FirebaseProgressSync
+import com.google.firebase.auth.FirebaseAuthException
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -16,14 +20,22 @@ data class SettingsUiState(
     val availablePresets: List<SettingsPreset> = emptyList(),
     val currentSettings: StudySettings = StudySettings(),
     val selectedPresetId: Long? = null,
-    val showSaveDialog: Boolean = false
+    val showSaveDialog: Boolean = false,
+    val firebaseConfigured: Boolean = false,
+    val signedInEmail: String? = null,
+    val authBusy: Boolean = false,
+    val authError: String? = null,
+    val authStatus: String? = null,
+    val showForgotPassword: Boolean = false,
+    val autoSyncAfterReview: Boolean = true
 )
 
 class SettingsViewModel(
     private val ankiRepository: AnkiRepository,
     private val preferencesRepository: PreferencesRepository,
     private val settingsPresetDao: SettingsPresetDao,
-    private val context: Context
+    private val context: Context,
+    private val progressSync: FirebaseProgressSync?
 ) : ViewModel() {
     
     private val notificationHelper = NotificationHelper(context)
@@ -37,6 +49,154 @@ class SettingsViewModel(
     
     init {
         loadData()
+        observeAuthState()
+    }
+
+    private fun observeAuthState() {
+        _uiState.update {
+            it.copy(
+                firebaseConfigured = progressSync != null,
+                signedInEmail = progressSync?.currentUser?.value?.email,
+                authBusy = false,
+                authError = null
+            )
+        }
+
+        progressSync?.let { sync ->
+            viewModelScope.launch {
+                sync.currentUser.collect { user ->
+                    _uiState.update { it.copy(signedInEmail = user?.email, authBusy = false) }
+                }
+            }
+        }
+    }
+
+    fun signIn(email: String, password: String) {
+        val sync = progressSync ?: run {
+            _uiState.update { it.copy(authError = "Firebase isn't configured yet") }
+            return
+        }
+
+        _uiState.update { it.copy(authBusy = true, authError = null, authStatus = null, showForgotPassword = false) }
+        viewModelScope.launch {
+            runCatching {
+                sync.signIn(email, password)
+            }.onFailure { err ->
+                val (message, showForgot) = humanizeAuthError(err, isSignIn = true)
+                _uiState.update {
+                    it.copy(
+                        authBusy = false,
+                        authError = message,
+                        authStatus = null,
+                        showForgotPassword = showForgot
+                    )
+                }
+            }.onSuccess {
+                _uiState.update { it.copy(authBusy = false, authError = null, authStatus = null, showForgotPassword = false) }
+            }
+        }
+    }
+
+    fun signUp(email: String, password: String) {
+        val sync = progressSync ?: run {
+            _uiState.update { it.copy(authError = "Firebase isn't configured yet") }
+            return
+        }
+
+        _uiState.update { it.copy(authBusy = true, authError = null, authStatus = null, showForgotPassword = false) }
+        viewModelScope.launch {
+            runCatching {
+                sync.signUp(email, password)
+            }.onFailure { err ->
+                val (message, _) = humanizeAuthError(err, isSignIn = false)
+                _uiState.update { it.copy(authBusy = false, authError = message, authStatus = null, showForgotPassword = false) }
+            }.onSuccess {
+                _uiState.update { it.copy(authBusy = false, authError = null, authStatus = null, showForgotPassword = false) }
+            }
+        }
+    }
+
+    fun sendPasswordReset(email: String) {
+        val sync = progressSync ?: run {
+            _uiState.update { it.copy(authError = "Firebase isn't configured yet", authStatus = null) }
+            return
+        }
+
+        val trimmed = email.trim()
+        if (trimmed.isBlank()) {
+            _uiState.update { it.copy(authError = "Enter your email first", authStatus = null) }
+            return
+        }
+
+        _uiState.update { it.copy(authBusy = true, authError = null, authStatus = null) }
+        viewModelScope.launch {
+            runCatching {
+                sync.sendPasswordResetEmail(trimmed)
+            }.onFailure {
+                // Avoid leaking whether an account exists.
+                _uiState.update {
+                    it.copy(
+                        authBusy = false,
+                        authError = null,
+                        authStatus = "If an account exists for that email, you'll receive a reset email shortly."
+                    )
+                }
+            }.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        authBusy = false,
+                        authError = null,
+                        authStatus = "If an account exists for that email, you'll receive a reset email shortly."
+                    )
+                }
+            }
+        }
+    }
+
+    fun signOut() {
+        progressSync?.signOut()
+        _uiState.update { it.copy(authError = null, authStatus = null, showForgotPassword = false) }
+    }
+
+    private fun humanizeAuthError(err: Throwable, isSignIn: Boolean): Pair<String, Boolean> {
+        // Default
+        var showForgot = false
+
+        // Firebase often returns: "The supplied auth credential is incorrect, malformed or has expired."
+        val rawMessage = (err.message ?: "").lowercase()
+        if (isSignIn && rawMessage.contains("supplied auth credential")) {
+            return "Wrong username or password" to true
+        }
+
+        when (err) {
+            is FirebaseAuthInvalidUserException -> {
+                // user-not-found
+                if (isSignIn) showForgot = true
+                return (if (isSignIn) "Wrong username or password" else "Account not found") to showForgot
+            }
+            is FirebaseAuthInvalidCredentialsException -> {
+                // wrong-password / invalid-email
+                if (isSignIn) showForgot = true
+                return (if (isSignIn) "Wrong username or password" else "Invalid email or password") to showForgot
+            }
+            is FirebaseAuthException -> {
+                if (isSignIn) {
+                    val code = err.errorCode
+                    if (code == "ERROR_WRONG_PASSWORD" || code == "ERROR_INVALID_CREDENTIAL" || code == "ERROR_USER_NOT_FOUND") {
+                        return "Wrong username or password" to true
+                    }
+                }
+                return (err.localizedMessage ?: (if (isSignIn) "Sign-in failed" else "Sign-up failed")) to false
+            }
+        }
+
+        return (err.localizedMessage ?: (if (isSignIn) "Sign-in failed" else "Sign-up failed")) to showForgot
+    }
+
+    fun setAutoSyncAfterReview(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setAutoSyncAfterReview(enabled)
+        }
     }
     
     private fun loadData() {
@@ -61,6 +221,12 @@ class SettingsViewModel(
             settingsPresetDao.getAllPresets().collect { entities ->
                 val presets = entities.map { it.toPreset() }
                 _uiState.update { it.copy(availablePresets = presets) }
+            }
+        }
+
+        viewModelScope.launch {
+            preferencesRepository.autoSyncAfterReview.collect { enabled ->
+                _uiState.update { it.copy(autoSyncAfterReview = enabled) }
             }
         }
     }

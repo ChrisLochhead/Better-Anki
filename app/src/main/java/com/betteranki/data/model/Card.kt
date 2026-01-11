@@ -18,6 +18,12 @@ data class Card(
     val exampleSentence: String = "",
     val showExampleOnFront: Boolean = false,
     val showExampleOnBack: Boolean = false,
+    // Media support from .apkg imports
+    val audioUri: String? = null,
+    val audioOnFront: Boolean = false,
+    val audioOnBack: Boolean = false,
+    val hasMediaFiles: Boolean = false,
+    val mediaFileNames: String = "", // Comma-separated list of media files
     val status: CardStatus = CardStatus.NEW,
     val easeFactor: Float = 2.5f,
     val interval: Int = 0, // days

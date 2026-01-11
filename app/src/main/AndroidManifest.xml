@@ -6,6 +6,9 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.CAMERA" />
     
+    <!-- Audio recording permission -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    
     <!-- Storage permissions for selecting images from gallery -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
